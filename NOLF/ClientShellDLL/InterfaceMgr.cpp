@@ -13,6 +13,8 @@
 #include "stdafx.h"
 #include "InterfaceMgr.h"
 #include "GameClientShell.h"
+#include "VRLog.h"
+#include "VRPrims.h"
 #include "MsgIDs.h"
 #include "ClientRes.h"
 #include "WeaponStringDefs.h"
@@ -31,6 +33,8 @@
 
 extern ConsoleMgr* g_pConsoleMgr;
 
+#include "VRShared.h"
+extern VarTrack g_vtVRFrameMarker;
 extern VarTrack g_vtOldMouseLook;
 extern VarTrack g_vtUseGOTYMenu;
 extern VarTrack g_vtNoFunMenus;
@@ -92,6 +96,8 @@ VarTrack	g_vtChooserAutoSwitchTime;
 VarTrack	g_vtChooserAutoSwitchFreq;
 VarTrack	g_vtCursorHack;
 VarTrack	g_vtLetterBox;
+// 0 = do not draw the cinematic bars at all, which is what a headset wants.
+VarTrack	g_vtVRLetterBox;
 VarTrack	g_vtLetterBoxFadeInTime;
 VarTrack	g_vtLetterBoxFadeOutTime;
 VarTrack	g_vtDisableMovies;
@@ -126,8 +132,28 @@ namespace
 	LTBOOL g_bFirstStateUpdate = LTFALSE;
 	LTBOOL g_bInGameFogEnabled = LTTRUE;
 
+// Whether the menu's 3D backdrop is rendered once per eye. Mirrors VRStereo so
+// it cannot drift from what the world is doing, but is its own variable so the
+// menu can be put back to a single render without changing the world's mode.
+VarTrack g_vtVRStereoIface;
+
 	HLTCOLOR hShadeColor;
 }
+
+// THE INTERFACE'S OWN OBJECT LIST, for the publish to read.
+//
+// Deliberately NOT behind FindObjectsInSphere. At the menu there is no
+// world loaded, so there is no spatial partition for a sphere query to
+// search: it returns 6 objects while this list holds 15, and the nine it
+// misses are the blue panel, the logo, THE OPERATIVE and the help box -
+// every piece of the menu that was missing. Retail's census agrees with
+// ours object for object, which is what proves the objects were never the
+// problem and the QUERY was.
+//
+// A plain array rather than an accessor: this is one writer, one reader,
+// same thread, same frame.
+HLOCALOBJ g_hVRIfaceObjs[64];
+int       g_nVRIfaceObjs = 0;
 
 // ----------------------------------------------------------------------- //
 //
@@ -293,6 +319,9 @@ LTBOOL CInterfaceMgr::Init()
 	UseHardwareCursor( GetConsoleInt("HardwareCursor",0) > 0 && GetConsoleInt("DisableHardwareCursor",0) == 0);
 
     g_vtDrawInterface.Init(g_pLTClient, "DrawInterface", NULL, 1.0f);
+	// 2 = render the menu's 3D backdrop into both halves of the side-by-side
+	// frame. The same default as VRStereo, for the same reason.
+	g_vtVRStereoIface.Init(g_pLTClient, "VRStereoIface", NULL, 2.0f);
     g_vtModelApplySun.Init(g_pLTClient, "ModelApplySun", NULL, 1.0f);
 
 	g_vtChooserAutoSwitchTime.Init(g_pLTClient, "ChooserAutoSwitchTime", NULL, 0.25f);
@@ -301,6 +330,7 @@ LTBOOL CInterfaceMgr::Init()
     g_vtCursorHack.Init(g_pLTClient, "CursorHack", NULL, 0.0f);
 
 	g_vtLetterBox.Init(g_pLTClient, "LetterBox", NULL, 0.0f);
+	g_vtVRLetterBox.Init(g_pLTClient, "VRLetterBox", NULL, 0.0f);
     g_vtLetterBoxFadeInTime.Init(g_pLTClient, "LetterBoxFadeInTime", NULL, 0.5f);
     g_vtLetterBoxFadeOutTime.Init(g_pLTClient, "LetterBoxFadeOutTime", NULL, 1.0f);
     g_vtDisableMovies.Init(g_pLTClient, "NoMovies", NULL, 0.0f);
@@ -370,10 +400,13 @@ LTBOOL CInterfaceMgr::Init()
 	char szDecBack[256]= "";
 
 	dwcs.pParentWnd = &m_MainWnd;
-	int dlgPos = g_pLayoutMgr->GetDialoguePosition();
+	// Scaled with the fonts: see VRDialogueScale in LTDialogueWnd.cpp.
+	extern float VRDialogueScale();
+	extern LTIntPt VRDialogueScaled(LTIntPt pt);
+	int dlgPos = (int)(g_pLayoutMgr->GetDialoguePosition() * VRDialogueScale());
 	dwcs.yPos = dlgPos;
 
-    LTIntPt dlgSz = g_pLayoutMgr->GetDialogueSize();
+    LTIntPt dlgSz = VRDialogueScaled(g_pLayoutMgr->GetDialogueSize());
 	dwcs.nWidth = dlgSz.x;
 	dwcs.nHeight = dlgSz.y;
 
@@ -388,7 +421,7 @@ LTBOOL CInterfaceMgr::Init()
 
 	dwcs.fAlpha = g_pLayoutMgr->GetDialogueAlpha();
 	dwcs.fDecisionAlpha = g_pLayoutMgr->GetDecisionAlpha();
-	dwcs.pFont = m_InterfaceResMgr.GetMediumFont();
+	dwcs.pFont = m_InterfaceResMgr.GetDialogueFont(LTFALSE);
 
 	dwcs.bFrame = (strlen(szDlgFrame) > 0);
 	dwcs.bDecisionFrame = (strlen(szDlgFrame) > 0);
@@ -706,7 +739,16 @@ LTBOOL CInterfaceMgr::PostUpdate()
 {
 	if (/*m_eGameState != GS_SPLASHSCREEN &&*/ m_eGameState != GS_LOADINGLEVEL)
 	{
+		// VR: the frame's single present. Must stay exactly once through M5.
+		VRLog::Count(VRLog::CTR_FLIP_SCREEN);
+		const double fFlipStartMs = VRLog::NowMs();
         g_pLTClient->FlipScreen(FLIPSCREEN_CANDRAWCONSOLE);
+		VRLog::NoteFlipTime(VRLog::NowMs() - fFlipStartMs);
+	}
+	else
+	{
+		// VR: the other stock no-present path. See GameClientShell.cpp PostUpdate.
+		VRLog::Msg("no-flip: GS_LOADINGLEVEL");
 	}
 
 	// because of driver bugs, we need to wait a frame after reinitializing the renderer and
@@ -925,6 +967,11 @@ LTBOOL CInterfaceMgr::DrawSFX()
 //
 // ----------------------------------------------------------------------- //
 
+// VR PHOTO MODE: the pause menu hidden over the frozen world. Toggled in
+// CGameClientShell::VRUpdateControllerInput (an off-hand stick click); while it
+// is on the folder is simply not drawn.
+bool g_bVRPhotoMode = false;
+
 void CInterfaceMgr::UpdateFolderState()
 {
 	if (m_FolderMgr.GetCurrentFolderID() == FOLDER_ID_NONE)
@@ -935,7 +982,23 @@ void CInterfaceMgr::UpdateFolderState()
 	DrawSFX();
 
     g_pLTClient->StartOptimized2D();
-	m_InterfaceResMgr.DrawFolder();
+	if (!g_bVRPhotoMode)
+		m_InterfaceResMgr.DrawFolder();
+
+	// THE FRAME MARKER FOR THE WORLD BEHIND THE MENU. The ESC menu over a
+	// loaded world renders HERE, not through RenderCamera, so the marker the
+	// host reads to match this image to the pose it was drawn from was never
+	// painted while paused - the host's log said "marker unreadable" for
+	// exactly the paused windows and the world fought the head. The renderer
+	// holds the marker and draws it over the fade at present.
+	// Not in photo mode: it is the one 2D element left, and it kept the pause
+	// panel up as a lone speck in the air. The host takes the marker from the
+	// block (v16) and only falls back to reading these pixels.
+	if (!g_bVRPhotoMode
+		&& g_pGameClientShell && g_pGameClientShell->IsInWorld() && VRShared::IsLive()
+		&& g_vtVRFrameMarker.GetFloat() > 0.0f)
+		g_pGameClientShell->DrawFrameMarker(VRShared::State().nFrameCounter);
+
 	UpdateScreenFade();
 	g_pLTClient->EndOptimized2D();
     g_pLTClient->End3D();
@@ -1221,6 +1284,30 @@ void CInterfaceMgr::UpdateSplashScreenState()
 
     LTRect rcDst;
 	rcDst.Init(nXOffset, 0, nWidth - nXOffset, nHeight);
+
+	// THE SPLASH KEEPS ITS OWN SHAPE. Stock code stretches the bitmap into
+	// the 4:3 layout box, which was right for the 640x480 original and
+	// squeezes the 16:9 Game or Die art. Fit the bitmap inside the whole
+	// screen at its own aspect, centred, and let the bars be black.
+	{
+		uint32 nSW = 0, nSH = 0;
+		g_pLTClient->GetSurfaceDims(g_hSplash, &nSW, &nSH);
+		// The WHOLE screen, not the 4:3 layout box: the VR menu panel is a
+		// 16:9 band of the eye (renderer g_fMenuBand, host --menu-aspect)
+		// and a 16:9 splash fitted to the whole logical screen lands on it
+		// exactly.
+		const int nBW = (int)nWidth, nBH = (int)nHeight;
+		if (nSW && nSH && nBW > 0 && nBH > 0)
+		{
+			int nDW = nBW, nDH = nBH;
+			if ((float)nBW / (float)nBH > (float)nSW / (float)nSH)
+				nDW = (int)((float)nBH * (float)nSW / (float)nSH);
+			else
+				nDH = (int)((float)nBW * (float)nSH / (float)nSW);
+			const int nX0 = (nBW - nDW) / 2, nY0 = (nBH - nDH) / 2;
+			rcDst.Init(nX0, nY0, nX0 + nDW, nY0 + nDH);
+		}
+	}
 
     g_pLTClient->GetSurfaceDims(g_hSplash, &nWidth, &nHeight);
 
@@ -1990,6 +2077,14 @@ LTBOOL CInterfaceMgr::OnMessage(uint8 messageID, HMESSAGEREAD hMessage)
 
 LTBOOL CInterfaceMgr::OnEvent(uint32 dwEventID, uint32 dwParam)
 {
+	// EVERY ENGINE EVENT, WITH ITS ID. The default branch below opens the
+	// main folder - the pause menu, in a level - for any id it does not
+	// know, and the desk harness kept meeting a pause menu and renderer
+	// restarts that nothing in the client asks for. Which id, and when, is
+	// the whole question.
+	VRLog::Msg("LTEVENT %u (param %u) - state %d, in world %d  [1 disc 3 rinit 4 rterm 5 ralmost 6 lostfocus 7 gainedfocus]",
+			   (unsigned)dwEventID, (unsigned)dwParam, (int)GetGameState(),
+			   g_pGameClientShell ? (int)g_pGameClientShell->IsInWorld() : -1);
 
 	switch (dwEventID)
 	{
@@ -2901,6 +2996,13 @@ LTBOOL CInterfaceMgr::Draw()
 					m_WeaponChooser.Draw();
 				else
 					m_WeaponChooser.Close();
+			}
+			if (m_VRWheel.IsOpen())
+			{
+				if (m_bDrawInterface)
+					m_VRWheel.Draw();
+				else
+					m_VRWheel.Close(LTFALSE);
 			}
 
 			if (IsChoosingAmmo())
@@ -4526,6 +4628,11 @@ void CInterfaceMgr::CreateOverlay(eOverlayMask eMask)
 {
 	HOBJECT hCamera = g_pGameClientShell->GetCamera();
 	if (!hCamera) return;
+	// THE SCOPE MASK AND THE ZOOM BLINK ARE FLAT-SCREEN THINGS. In the headset
+	// the scope is a lens on the gun, and a full-view mask sprite in front of
+	// the camera would be a black wall with a hole in it.
+	if (VRShared::IsLive() && (eMask == OVM_SCOPE || eMask == OVM_STATIC
+		|| eMask == OVM_ZOOM_IN || eMask == OVM_ZOOM_OUT)) return;
 
 	// Already created this mask
 	if (m_hOverlays[eMask]) return;
@@ -4907,6 +5014,26 @@ void CInterfaceMgr::UpdateLetterBox()
 
 	if (!bOn && m_fLetterBoxAlpha <= 0.0f) return;
 
+	// YOU DO NOT LETTERBOX A HEADSET.
+	//
+	// The bars exist to force a 4:3 game into a cinematic aspect on a flat
+	// monitor. In a headset there is no frame to letterbox - the black bands
+	// just eat the middle of the view and there is nothing outside them to
+	// protect. Ours came out ACROSS THE MIDDLE of the stereo frame rather than
+	// at the top and bottom, which is worse again.
+	//
+	// Everything above this line still runs: the on/off edge, the fade timer
+	// and m_fLetterBoxAlpha are all state the rest of the cinematic code reads,
+	// and skipping them would change when a cutscene thinks it has finished
+	// fading. Only the four blits are skipped.
+	//
+	// SUBTITLES AND LOCATION TEXT ARE NOT DRAWN HERE. They are separate layers
+	// - CInterfaceMgr::m_Subtitle and m_MissionText, updated from
+	// UpdatePlayingState - so they are untouched by this and still appear.
+	//
+	// +VRLetterBox 1 puts the bars back.
+	if (g_vtVRLetterBox.GetFloat() <= 0.0f) return;
+
 
 	// Determine the border size...
 
@@ -5116,6 +5243,11 @@ void CInterfaceMgr::UpdateInterfaceBackground()
 
 void CInterfaceMgr::RemoveInterfaceBackground()
 {
+	// FORGET THE PUBLISHED LIST FIRST. The back sprite is objs[0] in
+	// g_hVRIfaceObjs and Term() destroys it; a handle left behind here is
+	// read by the publish on the very next frame. See RemoveAllInterfaceSFX.
+	g_nVRIfaceObjs = 0;
+
 	m_BackSprite.Term();
 }
 
@@ -5184,6 +5316,10 @@ void CInterfaceMgr::RemoveInterfaceSFX(CSpecialFX* pSFX)
 	{
 //      g_pLTClient->CPrint("removing SFX[%d]",index);
 		m_InterfaceSFX.Remove(index);
+		// The published list is a snapshot of THIS array. One object leaving
+		// invalidates it - the entries after it shift, and the one removed is
+		// about to be destroyed - so drop the snapshot rather than repair it.
+		g_nVRIfaceObjs = 0;
 	}
 }
 
@@ -5197,6 +5333,21 @@ void CInterfaceMgr::RemoveInterfaceSFX(CSpecialFX* pSFX)
 
 void CInterfaceMgr::RemoveAllInterfaceSFX()
 {
+	// THIS IS WHERE SELECTING SINGLE PLAYER USED TO KILL US.
+	//
+	// PostFolderState calls this when the menu is torn down. The objects are
+	// destroyed here, but g_hVRIfaceObjs still held their handles, and the
+	// model and sprite publishes read that array every frame while the state
+	// is still GS_FOLDER. The engine then walked its list and made a virtual
+	// call on freed memory - the vtable pointer came back odd (034B684A) and
+	// execution went into the heap.
+	//
+	// Retail d3d.ren survived the identical keystroke because the publish
+	// block returns early when our renderer is absent, so it never touched
+	// the dead handles. That asymmetry is what made this look like a renderer
+	// bug for a whole evening; it was never in the renderer.
+	g_nVRIfaceObjs = 0;
+
 	while (m_InterfaceSFX.GetSize() > 0)
 	{
 		//m_InterfaceSFX[0]->Term();
@@ -5245,7 +5396,195 @@ void CInterfaceMgr::UpdateInterfaceSFX()
 			next++;
 		}
 	}
-    g_pLTClient->RenderObjects(hCamera, objs, next);
+	// HAND THE LIST TO THE PUBLISH. See g_hVRIfaceObjs.
+	// ONLY WHAT THE AUTHORED VIEW SHOWS. The VR menu panel is a 16:9 band
+	// wider than the interface camera's 90 degrees, and the interface scene
+	// parks props just outside that view - a second green box at about 100
+	// degrees on the main menu - which the wider panel would reveal. An
+	// object whose CENTRE is outside the authored horizontal field stays
+	// out; the backdrop sheets are centred and the renderer widens them.
+	// Positions are camera-space (FLAG_REALLYCLOSE) or world-space about a
+	// camera at the origin with identity rotation - the same numbers.
+	extern VarTrack g_vtInterfceFOVX;
+	const float fTanH = (float)tan(DEG2RAD(g_vtInterfceFOVX.GetFloat()) * 0.5f) * 1.02f;
+	g_nVRIfaceObjs = 0;
+	static uint32 s_nSaidObjs = 0;
+	for (int z = 0; z < next && g_nVRIfaceObjs < 64; ++z)
+	{
+		if (!objs[z]) continue;
+		LTVector p; g_pLTClient->GetObjectPos(objs[z], &p);
+		const bool bOut = (z > 0) && (p.z > 1.0f) && (fabsf(p.x) > p.z * fTanH);
+		if (s_nSaidObjs < 24)
+		{
+			++s_nSaidObjs;
+			// WITH ITS FILE, so the census can say which object is the
+			// pinwheel and which the sheet without guessing from a position.
+			const char* szFile = VRSkins_ModelFile(objs[z]);
+			VRLog::Msg("VRIface: object %d type %d at (%.0f %.0f %.0f), %.0f deg off axis  %08X %s%s",
+					   z, (int)g_pLTClient->GetObjectType(objs[z]), p.x, p.y, p.z,
+					   (p.z > 0.0f) ? RAD2DEG(atanf(p.x / p.z)) : 0.0f,
+					   (unsigned)(uintptr_t)objs[z], szFile,
+					   bOut ? "  <- outside the authored view, not published" : "");
+		}
+		if (bOut) continue;
+		g_hVRIfaceObjs[g_nVRIfaceObjs++] = objs[z];
+	}
+	{
+		static uint32 s_nSaidSFX = 0, s_nSFXFrame = 0;
+		if (++s_nSFXFrame % 450 == 1 && s_nSaidSFX < 4)
+		{
+			++s_nSaidSFX;
+			VRLog::Msg("VRIface: %d objects handed to the publish (%u interface SFX)", g_nVRIfaceObjs, numSfx);
+		}
+	}
+
+	// ONCE PER EYE, NOT ONCE PER FRAME.
+	//
+	// This is the live 3D behind the main menu - Cate standing and animating,
+	// which is what belongs where the headset shows black. The renderer has been able
+	// to draw it since the client started publishing the menu's models, and it
+	// was left switched off for one reason, written down in dllmain.cpp: the
+	// world is rendered twice a frame by the eye loop in GameClientShell and
+	// THIS is rendered once, so Cate appeared in one eye only. Content in a
+	// single eye is binocular rivalry - actively uncomfortable, worse than
+	// black.
+	//
+	// So render it twice, into the two halves of the side-by-side frame. With
+	// the SAME camera both times: this is a backdrop the host presents on a
+	// flat world-locked panel, so the two halves must be identical, exactly as
+	// the 2D layer already makes them (R2D_SetMenu zeroes the per-eye centres
+	// for the same reason). An IPD offset here would give the panel a
+	// disparity it has no depth to justify.
+	//
+	// The world's own eye loop avoids offset viewports because d3d.ren gets
+	// their geometry wrong (docs/M3-RENDERER-VIEWPORT-BUG.md). That is a
+	// property of the RETAIL renderer; ours reads the viewport rectangle out
+	// of the scene description and honours it, which is what makes a
+	// side-by-side pair two calls differing only in that rectangle.
+	const int nStereo = (int)g_vtVRStereoIface.GetFloat();
+	if (nStereo >= 2)
+	{
+		uint32 dwW = 640, dwH = 480;
+		g_pLTClient->GetSurfaceDims(g_pLTClient->GetScreenSurface(), &dwW, &dwH);
+		const int nHalf = (int)dwW / 2;
+		if (nHalf > 0)
+		{
+			// HALVING THE VIEWPORT HALVES THE PROJECTION WITH IT, or everything
+			// drawn in it comes out twice as tall as it is wide.
+			//
+			// The interface camera's FOV is set once, for the FULL screen rect
+			// (GameClientShell.cpp, m_hInterfaceCamera). Rendering into a rect
+			// of half the width and the same height without touching that FOV
+			// squeezes the same horizontal angle into half the pixels, and
+			// nothing changes vertically - so the picture stretches by exactly
+			// 2. MEASURED, in the headset and then at the desk: Cate's red
+			// catsuit boxed 290x882 px against retail's 610x948 in the same
+			// eye - height/width 3.04 against 1.55, a factor of 1.96.
+			//
+			// THE RULE IS THE VIEWPORT'S OWN SHAPE, not a ratio against the
+			// width we started from. A projection maps its frustum onto the
+			// WHOLE viewport, so pixels are square only when
+			//
+			//   tan(fovX/2) / tan(fovY/2) == viewportWidth / viewportHeight
+			//
+			// and anything else stretches. Derive the horizontal field from
+			// that identity and the stored fovX stops mattering, which is
+			// right: the scene description says this camera is 90 x 75
+			// degrees - tan ratio 1.303, a 4:3 screen - and it has been that
+			// since 2000. It is not a description of any modern viewport, let
+			// alone half of one, so scaling it is refining a wrong number.
+			//
+			// AND THE STORED fovX DOES MATTER AFTER ALL - it says HOW WIDE THE
+			// MENU IS, and throwing it away crops the menu instead of fitting
+			// it.
+			//
+			// The paragraph above is right that square pixels need
+			// tan(fovX/2)/tan(fovY/2) == vpW/vpH, and wrong that this leaves
+			// only one answer. It picked the answer that keeps the VERTICAL
+			// field and narrows the horizontal: tangents 1.0000 x 0.7673
+			// became 0.7097 x 0.7673, so 29% of the menu's width was cut off
+			// each side. Measured against a retail control: the NOLF logo
+			// loses its last letters and the note card runs off the left edge,
+			// in both eyes, every frame.
+			//
+			// The authored field is a RECTANGLE THAT MUST FIT, not a pair of
+			// angles to be re-derived. So fit it - the same rule an image
+			// viewer uses for "contain": one scale in pixels per unit of
+			// tangent, the smaller of the two that the viewport allows, and
+			// then both fields follow from it. Nothing is ever cropped and
+			// nothing is ever stretched; where the viewport is a different
+			// shape from the menu, MORE of the interface scene shows, and that
+			// scene has its own backdrop art out there rather than emptiness.
+			//
+			//   scale  = min(vpW / tan(fovX/2), vpH / tan(fovY/2))
+			//   fovX'  = 2 atan(vpW / scale)
+			//   fovY'  = 2 atan(vpH / scale)
+			//
+			// For an eye - 1280x1384 against 90 x 75 degrees - that is the
+			// width that binds: tangents 1.0000 x 1.0813, the whole menu wide
+			// and some sky above and below it. For the full 2560x1384 frame it
+			// is the height: 1.4192 x 0.7673, the whole menu tall.
+			//
+			// Both fields are put back below, not just fovX.
+			LTFLOAT fFovX = 0.0f, fFovY = 0.0f;
+			g_pLTClient->GetCameraFOV(hCamera, &fFovX, &fFovY);
+			LTFLOAT fEyeFovX = fFovX, fEyeFovY = fFovY;
+			{
+				const double tAX = tan((double)fFovX * 0.5);
+				const double tAY = tan((double)fFovY * 0.5);
+				if (tAX > 1e-6 && tAY > 1e-6)
+				{
+					const double sW = (double)nHalf / tAX;
+					const double sH = (double)dwH   / tAY;
+					const double sc = (sW < sH) ? sW : sH;
+					fEyeFovX = (LTFLOAT)(2.0 * atan((double)nHalf / sc));
+					fEyeFovY = (LTFLOAT)(2.0 * atan((double)dwH   / sc));
+				}
+			}
+			g_pLTClient->SetCameraFOV(hCamera, fEyeFovX, fEyeFovY);
+
+			g_pLTClient->SetCameraRect(hCamera, LTFALSE, 0, 0, nHalf, (int)dwH);
+			g_pLTClient->RenderObjects(hCamera, objs, next);
+			g_pLTClient->SetCameraRect(hCamera, LTFALSE, nHalf, 0, (int)dwW, (int)dwH);
+			g_pLTClient->RenderObjects(hCamera, objs, next);
+
+			// PUT IT ALL BACK - the FOV as well as the rect. Everything else
+			// that uses this camera (the menu's own 2D, the loading screen)
+			// assumes the full screen, and a pass must leave the state it
+			// found. Leaving the FOV narrowed would shrink the next thing
+			// drawn through this camera by half, once, at a folder change -
+			// which is the shape of a bug nobody can reproduce.
+			g_pLTClient->SetCameraFOV(hCamera, fFovX, fFovY);
+			g_pLTClient->SetCameraRect(hCamera, LTFALSE, 0, 0, (int)dwW, (int)dwH);
+		}
+		else g_pLTClient->RenderObjects(hCamera, objs, next);
+	}
+	else
+	{
+		// THE SAME RULE FOR THE WHOLE SCREEN. Without it the flat menu is
+		// stretched horizontally by 1.39 on a 2560x1384 screen - the authored
+		// 4:3 field spread across a 1.85 viewport - which is what made Cate
+		// 0.4355 of the frame wide here against 0.2980 in retail while her
+		// height matched to three decimals.
+		uint32 dwW2 = 640, dwH2 = 480;
+		g_pLTClient->GetSurfaceDims(g_pLTClient->GetScreenSurface(), &dwW2, &dwH2);
+		LTFLOAT fFovX2 = 0.0f, fFovY2 = 0.0f;
+		g_pLTClient->GetCameraFOV(hCamera, &fFovX2, &fFovY2);
+		const double tAX2 = tan((double)fFovX2 * 0.5);
+		const double tAY2 = tan((double)fFovY2 * 0.5);
+		const bool bFit = (dwW2 && dwH2 && tAX2 > 1e-6 && tAY2 > 1e-6);
+		if (bFit)
+		{
+			const double sW = (double)dwW2 / tAX2;
+			const double sH = (double)dwH2 / tAY2;
+			const double sc = (sW < sH) ? sW : sH;
+			g_pLTClient->SetCameraFOV(hCamera,
+				(LTFLOAT)(2.0 * atan((double)dwW2 / sc)),
+				(LTFLOAT)(2.0 * atan((double)dwH2 / sc)));
+		}
+		g_pLTClient->RenderObjects(hCamera, objs, next);
+		if (bFit) g_pLTClient->SetCameraFOV(hCamera, fFovX2, fFovY2);
+	}
 
 	// TESTING DYNAMIC LIGHT IN INTERFACE
 	/*
@@ -5443,7 +5782,9 @@ void CInterfaceMgr::UpdateCursor()
 	LTBOOL bHWC = (GetConsoleInt("HardwareCursor",0) > 0 && GetConsoleInt("DisableHardwareCursor",0) == 0);
 	if (bHWC != m_bUseHardwareCursor)
 		UseHardwareCursor(bHWC);
-	if (m_bUseCursor && !m_bUseHardwareCursor)
+	// Not in VR photo mode: the cursor was the last 2D element left and kept
+	// the pause panel up with an arrow floating in the air.
+	if (m_bUseCursor && !m_bUseHardwareCursor && !g_bVRPhotoMode)
 	{
 		g_pLTClient->Start3D();
 		g_pLTClient->StartOptimized2D();

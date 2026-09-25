@@ -55,6 +55,14 @@ LTBOOL CFolderEffects::Build()
 
 
 
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_TRACERS, IDS_SHELLCASINGS, IDS_MUZZLELIGHT, IDS_WEATHER, IDS_IMPACT, IDS_DEBRIS };
+		kTotalWidth = LabelColumn(kTotalWidth, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+		kHeaderWidth = kTotalWidth - kSpacerWidth;
+	}
+
 	CreateTitle(IDS_TITLE_EFFECTS);
 
 	CToggleCtrl* pToggle = AddToggle(IDS_TRACERS, IDS_HELP_TRACERS, kTotalWidth, &m_bTracers );

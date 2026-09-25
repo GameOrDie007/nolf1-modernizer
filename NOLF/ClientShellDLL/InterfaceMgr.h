@@ -270,6 +270,7 @@ class CInterfaceMgr
 		LTBOOL		IsFragCountDrawn()					{ return m_bDrawFragCount; }
 
         LTBOOL      IsChoosingWeapon()				{ return m_WeaponChooser.IsOpen();}
+		CVRWeaponWheel& GetVRWheel()				{ return m_VRWheel; }
         LTBOOL      IsChoosingAmmo()                { return m_AmmoChooser.IsOpen();}
 		void		CloseChoosers()					{ m_WeaponChooser.Close();m_AmmoChooser.Close();}
 
@@ -351,6 +352,7 @@ class CInterfaceMgr
 		CMessageMgr		m_messageMgr;			// Message display/sending mgr
 		CGameSettings	m_Settings;
 		CWeaponChooser	m_WeaponChooser;		// Next/previous weapon interface
+		CVRWeaponWheel	m_VRWheel;				// the VR radial weapon menu
 		CAmmoChooser	m_AmmoChooser;			// Next ammo interface
 		CInterfaceTimer m_InterfaceTimer;		// Main interface timer
 		CInterfaceMeter m_InterfaceMeter;		// Meter used for Boss levels

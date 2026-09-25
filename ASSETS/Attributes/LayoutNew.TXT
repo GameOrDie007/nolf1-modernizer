@@ -472,6 +472,22 @@ ScaleName7			= "RoundSelectionSpr6"
 ScaleName8			= "RoundyMovingMod3"
 ScaleName9			= "RoundyMovingMod4"
 
+[FolderVR]
+PageRect			= (70,138,585,385)
+FontSize			= 0
+ColumnWidth			= 300
+SliderWidth			= 150
+ScaleName0			= "WeaponBackgroundSpr1"
+ScaleName1			= "GreenTextBoxMod1"
+ScaleName2			= "GreenTextBoxMod2"
+ScaleName3			= "HorzBarTMod1"
+ScaleName4			= "HorzBarBMod1"
+ScaleName5			= "HelpTextBoxSpr1"
+ScaleName6			= "HelpTextBoxSpr2"
+ScaleName7			= "RoundSelectionSpr6"
+ScaleName8			= "RoundyMovingMod3"
+ScaleName9			= "RoundyMovingMod4"
+
 [FolderPerformance]
 ColumnWidth			= 200
 PageRect			= (75,115,585,385)

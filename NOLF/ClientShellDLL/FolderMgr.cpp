@@ -20,6 +20,7 @@
 #include "FolderAudio.h"
 #include "FolderGame.h"
 #include "FolderPerformance.h"
+#include "FolderVR.h"
 #include "FolderAdvDisplay.h"
 #include "FolderTexture.h"
 #include "FolderEffects.h"
@@ -426,6 +427,10 @@ void CFolderMgr::AddFolder(eFolderID folderID)
 
 	case FOLDER_ID_PERFORMANCE:
 		pFolder = debug_new(CFolderPerformance);
+		break;
+
+	case FOLDER_ID_VR:
+		pFolder = debug_new(CFolderVR);
 		break;
 
 	case FOLDER_ID_ADVDISPLAY:

@@ -1,0 +1,34 @@
+// The client DLL's version resource. The numbers match host/res/version.h in
+// the VR repository - change both. A DLL with no version resource is
+// anonymous to Windows and to virus scanners.
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK  0x3fL
+ FILEFLAGS      0x0L
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_DLL
+ FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "Game Or Die"
+            VALUE "FileDescription",  "NOLF1 VR - game client (NOLF Modernizer with VR)"
+            VALUE "FileVersion",      "1.0.0"
+            VALUE "InternalName",     "CShell.dll"
+            VALUE "LegalCopyright",   "NOLF1 VR - a free mod. No One Lives Forever (C) 2000 Monolith Productions."
+            VALUE "OriginalFilename", "CShell.dll"
+            VALUE "ProductName",      "NOLF1 VR"
+            VALUE "ProductVersion",   "1.0.0"
+            VALUE "Comments",         "Built from the NOLF Source Code v1.003 and nolf1-modernizer. No game data is included."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

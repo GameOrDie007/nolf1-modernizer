@@ -8,6 +8,7 @@
 #include "ClientRes.h"
 
 #include "GameClientShell.h"
+#include "VRShared.h"
 extern CGameClientShell* g_pGameClientShell;
 
 namespace
@@ -108,13 +109,34 @@ LTBOOL CFolderPerformance::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// The labels ran into their values with the scaled sheets: measured (CBaseFolder::LabelColumn).
+	{
+		static const int kLabels[] = { IDS_OVERALL_PERFORM, IDS_SOUNDFILTERS };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	CreateTitle(IDS_TITLE_PERFORMANCE);
 
 	m_pPerformance = AddCycleItem(IDS_OVERALL_PERFORM,IDS_HELP_OVERALL_PERFORM,kGap-25,25,&m_nOverall);
-	m_pPerformance->AddString(IDS_PERFORM_HIGH);
-	m_pPerformance->AddString(IDS_PERFORM_MEDIUM);
-	m_pPerformance->AddString(IDS_PERFORM_LOW);
+	// In VR the value is the quality half alone. "Average performance, Normal
+	// quality" beside a label this long runs off the menu surface with the
+	// scaled sheets, and the headset shows nothing past that edge.
+	if (VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0)
+	{
+		static const char* kShort[] = { "Low quality", "Normal quality", "High quality" };
+		for (int s = 0; s < 3; ++s)
+		{
+			HSTRING hStr = g_pLTClient->CreateString((char*)kShort[s]);
+			m_pPerformance->AddString(hStr);
+			g_pLTClient->FreeString(hStr);
+		}
+	}
+	else
+	{
+		m_pPerformance->AddString(IDS_PERFORM_HIGH);
+		m_pPerformance->AddString(IDS_PERFORM_MEDIUM);
+		m_pPerformance->AddString(IDS_PERFORM_LOW);
+	}
 	m_pPerformance->AddString(IDS_CUSTOMIZED);
 
 

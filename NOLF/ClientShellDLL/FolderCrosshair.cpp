@@ -60,6 +60,12 @@ LTBOOL CFolderCrosshair::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_USE_CROSSHAIR, IDS_CH_ALPHA, IDS_CH_R, IDS_CH_G, IDS_CH_B, IDS_CH_DYNAMIC };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	//use crosshair
 	CToggleCtrl* pToggle = AddToggle(IDS_USE_CROSSHAIR, IDS_HELP_CROSSHAIR, kGap, &m_bCrosshair );

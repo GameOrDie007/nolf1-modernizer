@@ -33,9 +33,13 @@ public:
 	CLTGUIFont			*GetLargeFont();
 	CLTGUIFont			*GetSmallFont()						{return m_pSmallFont;}
 	CLTGUIFont			*GetMediumFont()					{return m_pMediumFont;}
+	// The dialogue and decision boxes' own fonts in VR: the same faces a sheet
+	// smaller (VRDialogueSize of the menu's, default 0.75). See the .cpp.
+	CLTGUIFont			*GetDialogueFont(LTBOOL bLarge);
+	float				GetDialogueSizeRatio();
 	CLTGUIFont			*GetHelpFont()						{return m_pHelpFont;}
 
-	CLTGUIFont			*GetMsgForeFont()					{return m_pMsgForeFont;}
+	CLTGUIFont			*GetMsgForeFont();		// the large HD sheet under VRMenuBigSubs - see the .cpp
 	CLTGUIFont			*GetHUDForeFont()					{return m_pHUDForeFont;}
 	CLTGUIFont			*GetAirFont()						{return m_pAirFont;}
 	CLTGUIFont			*GetChooserFont()					{return m_pChooserFont;}
@@ -81,6 +85,8 @@ public:
 	int					GetYOffset()						{return 0;}
     LTFLOAT             GetXRatio()                         {return m_fXRatio;}
     LTFLOAT             GetYRatio()                         {return m_fYRatio;}
+    LTBOOL               ScaledFontsActive() const { return m_bScaledFonts; }
+    int                  GetFontScale()      const { return m_nFontScale; }
 	LTFLOAT				Get4x3Ratio()						{return (float)640/480;}
 	int 				Get4x3Offset();
 	LTFLOAT				GetUIScale();
@@ -106,15 +112,26 @@ protected:
 
     LTBOOL               InitFonts();
     LTBOOL               InitEngineFont(CLTGUIFont *pFont, int nNameID, int nWidthID, int nHeightID, LTBOOL bBold);
+    // The same, with the resource sizes multiplied by fScale. See InitFonts.
+    LTBOOL               InitEngineFontScaled(CLTGUIFont *pFont, int nNameID, int nWidthID, int nHeightID, LTBOOL bBold, float fScale);
     LTBOOL               InitEngineFont(CLTGUIFont *pFont, char *lpszName, int nWidth, int nHeight, LTBOOL bBold);
     LTBOOL               SetupFont(CLTGUIFont *pFont, LTBOOL bBlend = LTTRUE, uint32 dwFlags = LTF_INCLUDE_ALL);
+    // SetupFont, but first try the sheet made for this screen: the name in
+    // g_szFontName with "_<N>x" before the extension. Falls back to the
+    // original on any failure. See InitFonts for how N is chosen.
+    LTBOOL               SetupFontScaled(CLTGUIFont *pFont, LTBOOL bBlend = LTTRUE, uint32 dwFlags = LTF_INCLUDE_ALL);
+    // True once any scaled sheet has loaded. Everything that used to swap a
+    // small font for the large HD one (VRMenuBigSubs) must stand down then,
+    // because the small font is now the right size on its own.
 
 protected:
     LTBOOL               m_bEnglish;             // True if the resource file has English as the specified language
 
 	// HD Fonts - Upscaled for higher resolutions
 	CLTGUIFont			*m_pTitleHDFont;		// Title font
-	CLTGUIFont			*m_pLargeHDFont;		// Large fading font
+	CLTGUIFont			*m_pLargeHDFont;
+	LTBOOL          m_bScaledFonts;   // a _Nx sheet is in use
+	int             m_nFontScale;     // that N, 1 when none		// Large fading font
 	CLTGUIFont			*m_pMediumHDFont;		// Medium fading font
 	CLTGUIFont			*m_pSmallHDFont;		// Small fading font
 	CLTGUIFont			*m_pHelpHDFont;			// Help font
@@ -127,6 +144,8 @@ protected:
 	CLTGUIFont			*m_pTitleFont;			// Title font
 	CLTGUIFont			*m_pLargeFont;			// Large fading font
 	CLTGUIFont			*m_pMediumFont;			// Medium fading font
+	CLTGUIFont			*m_pDlgFont[2];			// dialogue medium / large, VR (lazy)
+	int					m_nDlgFontScale;
 	CLTGUIFont			*m_pSmallFont;			// Small fading font
 	CLTGUIFont			*m_pHelpFont;			// Help font
 	CLTGUIFont			*m_pMsgForeFont;		// Foreground Font used in HUD text display

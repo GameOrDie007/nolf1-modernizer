@@ -8,6 +8,7 @@
 #include "ClientRes.h"
 #include "MissionMgr.h"
 #include "FolderNew.h"
+#include "VarTrack.h"
 
 #include "InterfaceMgr.h"
 #include "GameClientShell.h"
@@ -78,9 +79,16 @@ void CFolderNew::OnFocus(LTBOOL bFocus)
 	CBaseSelectionFolder::OnFocus(bFocus);
 }
 
+extern VarTrack g_vtVRCheats;		// the VR level tour: bit 4 opens every mission
+
 void CFolderNew::BuildMissionList()
 {
 	int nextMission = g_pGameClientShell->GetPlayerSummary()->GetNextMission();
+	// THE LEVEL TOUR. mpbeenthere only frees the intel items; the list here
+	// stops at the player summary's next mission. With +VRCheats 4 every
+	// mission is listed, so a tester can go level by level from the menu.
+	if (((int)g_vtVRCheats.GetFloat()) & 4)
+		nextMission = g_pMissionMgr->GetNumMissions() - 1;
 	int nCurrentMission = -1;
 	for (int mis = 0; mis <= nextMission; ++mis)
 	{

@@ -17,6 +17,30 @@
 #include "InterfaceMgr.h"
 #include "InterfaceResMgr.h"
 #include "GameClientShell.h"
+
+// THE DIALOGUE AND DECISION BOXES ARE LAID OUT IN 640x480 PIXELS - the
+// question box at y 50, 500x100, a 20-pixel text margin; the choices wrap at
+// 540 - and nothing scaled them, while the fonts drawn inside them are the
+// 2x-4x sheets chosen by the screen ratio (VRMenuFontScale). At 3840x2076
+// the question box sat in the top 2% of the picture, off the headset's view,
+// and the choices wrapped into a tall column a few words wide (headset
+// screenshot against retail, 23 September). Every layout number of the two
+// boxes is scaled by the same screen ratio the fonts follow, which is the
+// proportion the game was authored at. Confirmed in the headset on 24
+// September; +VRDialogueScale 0 restores the 640x480 layout.
+float VRDialogueScale()
+{
+	if (!g_pInterfaceResMgr || GetConsoleInt("VRDialogueScale", 1) <= 0) return 1.0f;
+	const float f = g_pInterfaceResMgr->GetYRatio();
+	// and a sheet smaller in VR with the fonts (VRDialogueSize, InterfaceResMgr.cpp)
+	return (f > 1.0f) ? f * g_pInterfaceResMgr->GetDialogueSizeRatio() : 1.0f;
+}
+LTIntPt VRDialogueScaled(LTIntPt pt)
+{
+	const float f = VRDialogueScale();
+	LTIntPt r; r.x = (int)(pt.x * f); r.y = (int)(pt.y * f);
+	return r;
+}
 extern CGameClientShell* g_pGameClientShell;
 
 
@@ -65,7 +89,7 @@ BOOL CLTDialogueWnd::Init(DIALOGUEWNDCREATESTRUCT* pcs)
 	dwcs.pcollFrames = &m_collFrames;
 	dwcs.prcFrame = &m_rcFrame;
 	dwcs.prcTotal = &m_rcTotal;
-	dwcs.pFont = g_pInterfaceResMgr->GetMediumFont();
+	dwcs.pFont = g_pInterfaceResMgr->GetDialogueFont(LTFALSE);
 
 	dwcs.bFrame = pcs->bDecisionFrame;
 	dwcs.fAlpha = pcs->fDecisionAlpha;
@@ -170,7 +194,7 @@ BOOL CLTDialogueWnd::DrawToSurface(HSURFACE hSurfDest)
 	// Draw the font & clip it
 	if(!m_bClosing && !m_bOpening)
 	{
-        LTIntPt ptPos = g_pLayoutMgr->GetDialogueTextOffset();
+        LTIntPt ptPos = VRDialogueScaled(g_pLayoutMgr->GetDialogueTextOffset());
 		int nTop;
 		if(m_lfdd.dwFlags & LTF_TIMED_SCROLL)
 			nTop = GetWindowTop() + m_nHeight - ptPos.y - m_pFont->GetHeight();
@@ -218,7 +242,7 @@ BOOL CLTDialogueWnd::ShowWindow(BOOL bShow, BOOL bPlaySound, BOOL bAnimate)
 {
 		// Center us
 	MoveWindow((g_pGameClientShell->GetScreenWidth()-m_nWidth)/2,m_yPos);
-	m_pFont = g_pInterfaceResMgr->GetMediumFont();
+	m_pFont = g_pInterfaceResMgr->GetDialogueFont(LTFALSE);
 
 	if(!bAnimate)
 		return CLTMaskedWnd::ShowWindow(bShow,bPlaySound,bAnimate);
@@ -409,7 +433,7 @@ BOOL CLTDialogueWnd::DisplayText(char *szText, char *szAvatar, BOOL bStayOpen, c
 	ShowAllChildren();
 
 	// Set the format width
-    LTIntPt ptPos = g_pLayoutMgr->GetDialogueTextOffset();
+    LTIntPt ptPos = VRDialogueScaled(g_pLayoutMgr->GetDialogueTextOffset());
 	m_lfdd.dwFormatWidth = m_nWidth - (ptPos.x * 2);
 	m_lfdd.dwFlags = LTF_DRAW_FORMATTED;
 

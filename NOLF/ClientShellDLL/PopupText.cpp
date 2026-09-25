@@ -7,6 +7,8 @@
 #include "InterfaceMgr.h"
 #include "GameClientShell.h"
 #include "VarTrack.h"
+#include "VRShared.h"
+#include "ClientUtilities.h"
 
 VarTrack	g_vtPopupAdjust;
 
@@ -134,6 +136,27 @@ void CPopupText::ShowText(int nStringId)
 	int height = m_rcRect.bottom - m_rcRect.top;
 	width = (int)(g_pInterfaceResMgr->GetXRatio() * (LTFLOAT)width);
 	height = (int)(g_pInterfaceResMgr->GetYRatio() * (LTFLOAT)height);
+	// A LETTER IS A PAGE, NOT A BANNER. The authored rectangle is nearly the
+	// screen's width, and the 2D layer spans the eye's width, so a note read
+	// across the whole view. In VR it is set in a
+	// centred column VRPopupWidth of the screen wide (default 0.34, about 32
+	// degrees); the rectangle's top and bottom are kept. 0 restores it.
+	// A narrower column is a taller one, so it may grow past the authored
+	// height (to 90% of the screen) and is centred vertically instead.
+	bool bVRCol = false;
+	{
+		const float fCol = GetConsoleFloat("VRPopupWidth", 0.34f);
+		if (VRShared::IsLive() && fCol > 0.0f)
+		{
+			const int nCol = (int)(fCol * (float)g_pInterfaceResMgr->GetScreenWidth());
+			if (nCol < width)
+			{
+				m_pos.x = ((int)g_pInterfaceResMgr->GetScreenWidth() - nCol) / 2;
+				width = nCol;
+				bVRCol = true;
+			}
+		}
+	}
 
 	m_dwWidth = 0;
 	m_dwHeight = 0;
@@ -144,6 +167,11 @@ void CPopupText::ShowText(int nStringId)
 	}
 
 	LTIntPt size = m_pForeFont->GetTextExtentsFormat(hText,width);
+	if (bVRCol)
+	{
+		const int nMaxH = (int)(0.9f * (float)g_pInterfaceResMgr->GetScreenHeight());
+		if (size.y > height) height = (size.y < nMaxH) ? size.y : nMaxH;
+	}
 	if (size.y > height) size.y = height;
 
 	if ((uint32)size.x > m_dwWidth || (uint32)size.y > m_dwHeight)
@@ -157,7 +185,10 @@ void CPopupText::ShowText(int nStringId)
 	ClearSurfaces();
 
 	m_pos.x += (width - size.x) / 2;
-	m_pos.y += (height - size.y);
+	if (bVRCol)
+		m_pos.y = ((int)g_pInterfaceResMgr->GetScreenHeight() - size.y) / 2;
+	else
+		m_pos.y += (height - size.y);
 
 	m_pForeFont->DrawFormat(hText,m_hForeSurf,0,0,(uint32)width,kWhite);
 

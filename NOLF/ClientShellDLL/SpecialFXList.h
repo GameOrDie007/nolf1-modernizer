@@ -15,7 +15,15 @@
 #include "SpecialFX.h"
 
 #define  DEFAULT_MAX_NUM	50
-#define	 MAX_NUM_LINKS	  	500
+// THE HARD CEILING ON EVERY FX LIST, and the one that was actually deciding
+// how many bullet holes and shell casings survive. The per-type table in
+// SFXMgr.cpp asks for a number and Create() clamps it to this, so raising that
+// table from 200 to 3000 changed nothing until this moved too.
+//
+// The list holds a POINTER and a uint32 age per slot - 4096 slots is 32 KB -
+// and Add() walks the array once to age it, which at ten casings a second is
+// not a cost worth protecting against. Lists that ask for 50 still get 50.
+#define	 MAX_NUM_LINKS	  	4096
 
 class CSpecialFXList
 {

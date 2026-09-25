@@ -52,6 +52,10 @@ public:
     void        UpdateAmmo(uint8 nWeaponId, uint8 nAmmoId, uint32 nAmmo, LTBOOL bPickedup=LTFALSE, LTBOOL bDisplayMsg=LTTRUE);
     void        UpdateGear(uint8 nGearId);
     void        UpdateMod(uint8 nModId);
+    // VR: every player weapon and every mod marked held, for the level tour's
+    // "everything" cheat after a save restore has put the save's flags back.
+    // Returns the weapon count; nMods gets the mod count.
+    int         VRHaveEverything(int& nMods);
     void        UpdateAir(LTFLOAT nPercent);
     void        UpdateObjectives(uint8 nType, uint8 nTeam, uint32 dwId);
 	void		UpdateFramerate(LTFLOAT framerate);
@@ -244,6 +248,11 @@ protected:
 	HSURFACE	m_hHUDAmmo;
 	HSURFACE	m_hAmmoBar;
 	HSURFACE	m_hAmmoIcon;
+	// VR: the ammo count drawn into its own surface and scaled like the health
+	// bars (DrawPlayerStats). Redrawn only when the text or its tint changes.
+	HSURFACE	m_hVRAmmoStr;
+	int			m_nVRAmmoW, m_nVRAmmoH;
+	char		m_szVRAmmo[24];
 	HSURFACE	m_hAmmoFull;
 	HSURFACE	m_hAmmoEmpty;
     LTIntPt      m_AmmoSz;

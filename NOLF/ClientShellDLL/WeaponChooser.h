@@ -73,4 +73,46 @@ private:
 	float		m_fStartTime;
 };
 
+// THE VR WEAPON WHEEL. Asked for in headset testing: a way to change
+// weapons. A radial menu of every weapon the player carries,
+// drawn on the HUD around the centre of the view. Opened with the RIGHT
+// stick click; the right stick then points at a slot (turning is off while
+// it is open); letting the stick spring back to centre selects the slot it
+// pointed at and closes the wheel, as does the trigger or a second click.
+// A click with nothing pointed at just closes it.
+#define VRWHEEL_MAX_SLOTS	16
+
+class CVRWeaponWheel
+{
+public:
+	CVRWeaponWheel();
+	~CVRWeaponWheel();
+
+	void	Init();
+	void	Term();
+
+	LTBOOL	Open();
+	// bSelect: change to the highlighted weapon (if any) on the way out.
+	void	Close(LTBOOL bSelect);
+	LTBOOL	IsOpen() const { return m_bIsOpen; }
+
+	// The right stick, every frame while open. Deflection highlights the
+	// nearest slot; a return to centre after a highlight selects it.
+	void	Update(float fStickX, float fStickY);
+	void	Draw();
+
+private:
+	void	FreeSurfaces();
+
+	LTBOOL		m_bIsOpen;
+	int			m_nSlots;
+	uint8		m_nWeapon[VRWHEEL_MAX_SLOTS];
+	HSURFACE	m_hSurf[VRWHEEL_MAX_SLOTS];
+	uint32		m_nSurfW[VRWHEEL_MAX_SLOTS], m_nSurfH[VRWHEEL_MAX_SLOTS];
+	int			m_nHighlight;			// -1 none
+	LTBOOL		m_bDeflected;			// the stick has been out since opening
+	HSTRING		m_hName;				// the highlighted weapon's name
+	float		m_fOpenTime;
+};
+
 #endif // !defined(AFX_WEAPONCHOOSER_H__1762B140_8553_11D3_B2DB_006097097C7B__INCLUDED_)

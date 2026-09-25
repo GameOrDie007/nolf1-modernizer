@@ -2,6 +2,20 @@
 #include "iltclient.h"
 #include "LightScaleMgr.h"
 #include "GameClientShell.h"
+#include "VRLog.h"
+
+// VR DIAGNOSTIC. The global light scale is the one thing the retail renderer
+// applies to every pixel that ours never saw: containers, damage, the
+// interface fade and the level's time of day all multiply the scene through
+// it. Every change is logged here; the value itself reaches the renderer
+// from GameClientShell, which reads the engine's copy back each frame.
+static void VRLightScaleSet(const LTVector& v)
+{
+	static LTVector s_vLast(-1.0f, -1.0f, -1.0f);
+	if (v.x == s_vLast.x && v.y == s_vLast.y && v.z == s_vLast.z) return;
+	s_vLast = v;
+	VRLog::Msg("VRLightScale: global light scale -> %.3f %.3f %.3f", v.x, v.y, v.z);
+}
 
 extern VarTrack g_vtEnableLightScale;
 
@@ -108,7 +122,7 @@ void CLightScaleMgr::SetLightScale()
 			vLightScale.x = pEffect->nRed;
 			vLightScale.y = pEffect->nGreen;
 			vLightScale.z = pEffect->nBlue;
-            g_pLTClient->SetGlobalLightScale (&vLightScale);
+            VRLightScaleSet(vLightScale); g_pLTClient->SetGlobalLightScale (&vLightScale);
 			return;
 		}
 		pEffect = pEffect->pNext;
@@ -125,7 +139,7 @@ void CLightScaleMgr::SetLightScale()
 			vLightScale.x = pEffect->nRed;
 			vLightScale.y = pEffect->nGreen;
 			vLightScale.z = pEffect->nBlue;
-            g_pLTClient->SetGlobalLightScale (&vLightScale);
+            VRLightScaleSet(vLightScale); g_pLTClient->SetGlobalLightScale (&vLightScale);
 			return;
 		}
 		pEffect = pEffect->pNext;
@@ -142,7 +156,7 @@ void CLightScaleMgr::SetLightScale()
 			vLightScale.x = pEffect->nRed;
 			vLightScale.y = pEffect->nGreen;
 			vLightScale.z = pEffect->nBlue;
-            g_pLTClient->SetGlobalLightScale (&vLightScale);
+            VRLightScaleSet(vLightScale); g_pLTClient->SetGlobalLightScale (&vLightScale);
 			return;
 		}
 		pEffect = pEffect->pNext;
@@ -164,7 +178,7 @@ void CLightScaleMgr::SetLightScale()
 			vLightScale.y *= m_TimeOfDayScale.y;
 			vLightScale.z *= m_TimeOfDayScale.z;
 
-            g_pLTClient->SetGlobalLightScale (&vLightScale);
+            VRLightScaleSet(vLightScale); g_pLTClient->SetGlobalLightScale (&vLightScale);
 			return;
 		}
 		pEffect = pEffect->pNext;
@@ -186,7 +200,7 @@ void CLightScaleMgr::SetLightScale()
 			vLightScale.y *= m_TimeOfDayScale.y;
 			vLightScale.z *= m_TimeOfDayScale.z;
 
-            g_pLTClient->SetGlobalLightScale (&vLightScale);
+            VRLightScaleSet(vLightScale); g_pLTClient->SetGlobalLightScale (&vLightScale);
 			return;
 		}
 		pEffect = pEffect->pNext;
@@ -201,7 +215,7 @@ void CLightScaleMgr::SetLightScale()
 	vec.y *= m_TimeOfDayScale.y;
 	vec.z *= m_TimeOfDayScale.z;
 
-    g_pLTClient->SetGlobalLightScale (&vec);
+    VRLightScaleSet(vec); g_pLTClient->SetGlobalLightScale (&vec);
 }
 
 

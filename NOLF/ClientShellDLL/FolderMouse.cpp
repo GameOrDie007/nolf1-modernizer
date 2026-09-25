@@ -57,6 +57,12 @@ LTBOOL CFolderMouse::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_MOUSE_MOUSELOOK, IDS_MOUSE_SENSITIVITY, IDS_MOUSE_INPUTRATE, IDS_MOUSE_INVERTYAXIS, IDS_VEHICLETURN, IDS_OLD_MOUSELOOK };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	//Always mouse look
 	CToggleCtrl* pToggle = AddToggle(IDS_MOUSE_MOUSELOOK, IDS_HELP_MOUSELOOK, kGap, &m_bMouseLook );

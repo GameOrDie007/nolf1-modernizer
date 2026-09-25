@@ -2,6 +2,78 @@
 //
 //////////////////////////////////////////////////////////////////////
 #include "stdafx.h"
+
+extern VarTrack g_vtVRMenuHDFont;
+extern VarTrack g_vtVRMenuBigSubs;
+#include "VRLog.h"
+#include "VRShared.h"
+#include "InterfaceResMgr.h"
+static int m_bVRSaidPage = 0;
+
+// HOW MUCH OF THE PAGE ONE ITEM COSTS.
+//
+// Measured, not guessed: the placement loops advance a LAYOUT-space
+// accumulator by the control's SCREEN-pixel height. At 640x480 those are the
+// same number and nobody ever had to care; at 1384 tall the layout is stretched
+// by 2.883 and the glyphs are not, so the step is whatever the font sheet
+// happens to be. The log below printed y=148,200,...,408 with size.y=52 and
+// spacing=0 against a page ending at 385 - which is why the HD font dropped
+// "Quit" off the pause menu and "Intelligence gallery" off Single Player.
+//
+// So charge the page what the ORIGINAL font would have charged. The glyph still
+// draws at 52; only the paging arithmetic is put back, which keeps every
+// folder's page breaks exactly where they were before the HD font.
+static int VRPageStep(int nHeight)
+{
+	// ONLY THE FONT THAT ACTUALLY GREW MAY BE DISCOUNTED.
+	//
+	// The first version of this divided EVERY control height by 52/28, which is
+	// wrong: most Options sub-folders set FontSize 0 or 1 in LayoutNew.txt and
+	// draw with the small or medium font, and those have no HD art and did not
+	// change size. Discounting them let more items onto a page than before,
+	// which is a paging change nobody asked for and that no screenshot would
+	// have shown. Only the HD large sheet is 52 tall; the original large is 28
+	// and small and medium are smaller still.
+	// THE SCALED SHEETS FIRST. With a 2x/3x/4x sheet in use (InitFonts,
+	// VRMenuFontScale) every glyph is N times its authored height, so the
+	// layout-space charge is the pixel height over N - the height the
+	// original sheet would have cost. Charging the raw pixels made every
+	// folder paginate at 4x: the briefing card drew 3 of its 4 items and the
+	// paragraph was the one dropped (the mission
+	// briefing was broken; the log said "drew 3 of 4 <- DROPPED" on
+	// 54 folders in one run). The HD-large rule below is for the sheet the
+	// scaled sheets replaced, and must not stack on top of this.
+	if (g_pInterfaceResMgr && g_pInterfaceResMgr->ScaledFontsActive())
+	{
+		const int nScale = g_pInterfaceResMgr->GetFontScale();
+		if (nScale > 1) return (nHeight + nScale / 2) / nScale;
+	}
+	if (g_vtVRMenuHDFont.GetFloat(1.0f) > 0.0f && nHeight >= 40)
+		return (nHeight * 28) / 52;
+	return nHeight;
+}
+
+// Did this folder manage to draw everything it has? Reported once per folder
+// per (first,last,total), so walking the tree in one run produces one line per
+// screen and a DROPPED marker on any that paginates.
+static void VRFolderVerdict(int nFolder, int nFirst, int nLast, int nTotal,
+							int nTop, int nBottom, int nSpacing)
+{
+	struct Seen { int nFolder, nFirst, nLast, nTotal; };
+	static Seen s_seen[96];
+	static int  s_nSeen = 0;
+	for (int i = 0; i < s_nSeen; ++i)
+		if (s_seen[i].nFolder == nFolder && s_seen[i].nFirst == nFirst
+			&& s_seen[i].nLast == nLast && s_seen[i].nTotal == nTotal) return;
+	if (s_nSeen >= 96) return;
+	Seen& e = s_seen[s_nSeen++];
+	e.nFolder = nFolder; e.nFirst = nFirst; e.nLast = nLast; e.nTotal = nTotal;
+	const int nDrawn = (nLast >= nFirst) ? (nLast - nFirst + 1) : 0;
+	VRLog::Msg("MENU FOLDER %d: drew %d of %d (items %d..%d), page %d..%d,"
+			   " spacing %d%s", nFolder, nDrawn, nTotal, nFirst, nLast,
+			   nTop, nBottom, nSpacing,
+			   (nDrawn < nTotal) ? "   <- DROPPED" : "");
+}
 #include "BaseFolder.h"
 #include "FolderMgr.h"
 #include "FolderCommands.h"
@@ -167,8 +239,18 @@ LTBOOL CBaseFolder::Init(int nFolderID)
 
 	m_nAlignment = g_pLayoutMgr->GetFolderItemAlign((eFolderID)nFolderID);
 
-	int nWidth = m_HelpRect.right - m_HelpRect.left;
-	int nHeight = m_HelpRect.bottom - m_HelpRect.top;
+	// THE HELP STRIP AND THE TITLE ARE THE TEXT THAT STAYED SMALL. The item
+	// text took the HD large sheet under VRMenuBigSubs; the help line under
+	// the panel and the page title did not, because the help surface is
+	// created at its 640x480 layout size and drawn unscaled, and the title
+	// font has no HD art. At 3840x2076 both were a few pixels tall - the
+	// sub-menu font size, third headset test. Under VRMenuBigSubs the
+	// help surface is made at the layout rect times the screen ratio, the
+	// help text is drawn into it with the large HD font, and the title uses
+	// the same font; see GetHelpFont, GetTitleFont and UpdateHelpText.
+	const float fHS = HelpScale();
+	int nWidth = (int)((m_HelpRect.right - m_HelpRect.left) * fHS);
+	int nHeight = (int)((m_HelpRect.bottom - m_HelpRect.top) * fHS);
 	if (!m_hHelpSurf)
 		m_hHelpSurf = g_pLTClient->CreateSurface((uint32)nWidth,(uint32)nHeight);
 
@@ -337,13 +419,17 @@ LTBOOL CBaseFolder::Render(HSURFACE hDestSurf)
 		size.x=m_controlArray[i]->GetWidth();
 		size.y=m_controlArray[i]->GetHeight();
 
-		if ( y+size.y <= GetPageBottom() )
+		// WHAT THE PAGE ARITHMETIC ACTUALLY IS. Derived from screenshots it
+		// did not close - the rendered pitch and the accumulator disagreed by
+		// a factor - so it is printed rather than inferred. Once per folder.
+		const int nStep = VRPageStep(size.y);
+		if ( y+nStep <= GetPageBottom() )
 		{
 
 			// Set the position for the control
 			m_controlArray[i]->SetPos((x*yr) + xo, y * yr);
 			m_controlArray[i]->Render ( hDestSurf );
-			y+=size.y+m_nItemSpacing;
+			y+=nStep+m_nItemSpacing;
 		}
 		else
 		{
@@ -353,6 +439,34 @@ LTBOOL CBaseFolder::Render(HSURFACE hDestSurf)
 
 	m_nLastDrawn = i-1;
 
+	// ONE VERDICT PER FOLDER, so a single run can walk the whole menu tree and
+	// the log says which screens lose an item. Said once per folder per item
+	// count, not per frame.
+	VRFolderVerdict(m_nFolderID, m_nFirstDrawn, m_nLastDrawn,
+					m_controlArray.GetSize(), GetPageTop(), GetPageBottom(),
+					m_nItemSpacing);
+
+	// THE HIT RECT OF THE FIRST ITEM, once per folder. GetControlUnderPoint
+	// tests GetPos() and GetWidth()/GetHeight(), and a text item's size comes
+	// from its font's extents (CalculateSize) - so this is the number that
+	// says whether a scaled font sheet also scaled the clickable area. A
+	// screen-position click cannot test it here: the menu is always drawn as
+	// a fitted stereo pair, so the drawn pixel is not the client-space point.
+	{
+		static int s_nRectSaid[96];
+		static int s_nRectCount = 0;
+		bool bSaid = false;
+		for (int k = 0; k < s_nRectCount; ++k) if (s_nRectSaid[k] == m_nFolderID) bSaid = true;
+		if (!bSaid && s_nRectCount < 96 && m_nLastDrawn >= m_nFirstDrawn
+			&& m_nFirstDrawn >= 0 && m_nFirstDrawn < (int)m_controlArray.GetSize())
+		{
+			s_nRectSaid[s_nRectCount++] = m_nFolderID;
+			CLTGUICtrl* pC = m_controlArray[m_nFirstDrawn];
+			VRLog::Msg("MENU FOLDER %d: first item hit rect at %d,%d size %dx%d",
+					   m_nFolderID, pC->GetPos().x, pC->GetPos().y,
+					   pC->GetWidth(), pC->GetHeight());
+		}
+	}
 
 	if (m_hHelpSurf && m_dwCurrHelpID)
 	{
@@ -633,21 +747,58 @@ LTBOOL CBaseFolder::OnEnter()
 }
 
 
+// VRMenuBigSubs swaps every menu font for the large HD sheet because, until
+// 12 September, that was the only sheet with HD art. Once InterfaceResMgr has
+// loaded real scaled sheets (tools/hdfont.py, 2x/3x/4x of every menu font)
+// each font is the right size on its own and the swap would make sub-pages
+// LARGER than the main menu. So the swap applies only while no scaled sheet
+// is in use. The help-surface scale is a different mechanism and stays.
+static bool BigSubsApply()
+{
+	return g_vtVRMenuBigSubs.GetFloat(0.0f) > 0.0f
+		&& g_pInterfaceResMgr && !g_pInterfaceResMgr->ScaledFontsActive();
+}
+
 CLTGUIFont* CBaseFolder::GetTitleFont()
 {
     if (!g_pInterfaceResMgr) return LTNULL;
+	// The title font has no HD art; under VRMenuBigSubs the page title is
+	// set in the large HD font like everything else on the page.
+	if (BigSubsApply())
+		return g_pInterfaceResMgr->GetLargeFont();
 	return g_pInterfaceResMgr->GetTitleFont();
+}
+
+float CBaseFolder::HelpScale()
+{
+	if (!g_pInterfaceResMgr) return 1.0f;
+	// The help surface is created at its 640x480 layout size and drawn
+	// unscaled, so it has to be made at the screen ratio whenever the text
+	// going into it is screen-sized - under BigSubs OR under scaled sheets.
+	if (g_vtVRMenuBigSubs.GetFloat(0.0f) > 0.0f || g_pInterfaceResMgr->ScaledFontsActive())
+		return g_pInterfaceResMgr->GetYRatio();
+	return 1.0f;
 }
 
 CLTGUIFont* CBaseFolder::GetSmallFont()
 {
     if (!g_pInterfaceResMgr) return LTNULL;
+	// THE PAGES THAT ASK FOR THE SMALL SHEET BY NAME. GetDefaultFont already
+	// keeps the large sheet under VRMenuBigSubs, but the Load and Save pages
+	// (and twenty-six others) call GetSmallFont / GetMediumFont directly for
+	// their lists - which is why the tiny font on the Load page survived
+	// the page-default change. Fourth headset test.
+	// Same answer: only the large sheet has HD art, so that is the one.
+	if (BigSubsApply())
+		return g_pInterfaceResMgr->GetLargeFont();
 	return g_pInterfaceResMgr->GetSmallFont();
 }
 
 CLTGUIFont* CBaseFolder::GetMediumFont()
 {
     if (!g_pInterfaceResMgr) return LTNULL;
+	if (BigSubsApply())
+		return g_pInterfaceResMgr->GetLargeFont();
 	return g_pInterfaceResMgr->GetMediumFont();
 }
 
@@ -655,6 +806,10 @@ CLTGUIFont* CBaseFolder::GetMediumFont()
 CLTGUIFont* CBaseFolder::GetHelpFont()
 {
     if (!g_pInterfaceResMgr) return LTNULL;
+	// See HelpScale: the help surface is scaled up with the screen, so the
+	// text drawn into it can be the large HD font.
+	if (BigSubsApply())
+		return g_pInterfaceResMgr->GetLargeFont();
 	return g_pInterfaceResMgr->GetHelpFont();
 }
 
@@ -664,9 +819,58 @@ CLTGUIFont* CBaseFolder::GetLargeFont()
 	return g_pInterfaceResMgr->GetLargeFont();
 }
 
+// THE VALUE COLUMN, MEASURED. Every options page places its values at a column
+// the layout file authored for the 640x480 font (ColumnWidth, scaled by the
+// screen ratio) or at a bare number. With the screen-ratio font sheets the
+// labels are wider than that, so they ran into their values on the Display,
+// Sound, Performance, Mouse and Interface pages.
+// This returns the wider of the authored column and the widest label actually
+// drawn plus a margin, so a page's values always clear its labels.
+int CBaseFolder::LabelColumn(int nGap, const int* pStringIds, int nIds, CLTGUIFont* pFont)
+{
+	if (!pFont) pFont = GetDefaultFont();
+	if (!pFont || !pStringIds) return nGap;
+	int nWidest = 0;
+	for (int i = 0; i < nIds; ++i)
+	{
+		HSTRING hStr = g_pLTClient->FormatString(pStringIds[i]);
+		if (!hStr) continue;
+		// The font library caches ONE result keyed by the HSTRING's address.
+		// A freed string's address comes straight back for the next one, so a
+		// bare measure returns the previous label's width. Measure a second
+		// live string first: two live handles cannot share an address.
+		HSTRING hPrime = g_pLTClient->CreateString((char*)"|");
+		if (hPrime) pFont->GetTextExtents(hPrime);
+		const LTIntPt sz = pFont->GetTextExtents(hStr);
+		if (hPrime) g_pLTClient->FreeString(hPrime);
+		g_pLTClient->FreeString(hStr);
+		if (sz.x > nWidest) nWidest = sz.x;
+	}
+	const int nMargin = (int)(20.0f * g_pInterfaceResMgr->GetYRatio());
+	const int nCol = (nWidest + nMargin > nGap) ? nWidest + nMargin : nGap;
+	VRLog::Msg("LabelColumn: folder %d authored %d widest %d -> %d", (int)m_nFolderID, nGap, nWidest, nCol);
+	return nCol;
+}
+
 CLTGUIFont* CBaseFolder::GetDefaultFont()
 {
 	CLTGUIFont *pFont = GetLargeFont();
+
+	// VR: IGNORE THE AUTHORED FONT SIZE AND KEEP THE LARGE SHEET.
+	//
+	// Sub-folders ask for the small or medium font, and only the large one has
+	// HD art - so at 2560x1384 the main menu is comfortable and everything
+	// under it is a third the size. That is exactly what headset testing reported.
+	//
+	// DEFAULT OFF, because this is a LAYOUT change and not a cosmetic one: the
+	// large font is 52 tall against the small sheet's, so fewer items fit a
+	// page and a folder can silently paginate. VRFolderVerdict below already
+	// reports every folder's first/last/total with a DROPPED marker when it
+	// does, so switching this on and walking the menu tree says immediately
+	// whether anything fell off - which is the check to run before this
+	// becomes the default.
+	if (g_vtVRMenuBigSubs.GetFloat(0.0f) > 0.0f)
+		return pFont;
 
 	if (g_pLayoutMgr->HasCustomValue((eFolderID)m_nFolderID, "FontSize"))
 	{
@@ -1108,12 +1312,13 @@ void CBaseFolder::CalculateLastDrawn()
 		size.x=m_controlArray[i]->GetWidth();
 		size.y=m_controlArray[i]->GetHeight();
 
-		if ( y+size.y <= GetPageBottom() )
+		const int nStep2 = VRPageStep(size.y);
+		if ( y+nStep2 <= GetPageBottom() )
 		{
 
 			// Set the position for the control
 			m_controlArray[i]->SetPos(x, y);
-			y+=size.y+m_nItemSpacing;
+			y+=nStep2+m_nItemSpacing;
 		}
 		else
 		{
@@ -1271,7 +1476,9 @@ LTBOOL CBaseFolder::PreviousPage(LTBOOL bChangeSelection)
 				i++;
 				break;
 			}
-			int y=m_controlArray[i]->GetHeight();
+			// The same charge as the placement loops, or a page back
+			// would hold a different number of items than a page forward.
+			int y=VRPageStep(m_controlArray[i]->GetHeight());
 
 			if ( height > y )
 			{
@@ -1408,6 +1615,19 @@ CStaticTextCtrl* CBaseFolder::CreateStaticTextItem(HSTRING hString, uint32 comma
 
     if (pFont == LTNULL)
 		pFont = GetDefaultFont();
+
+	// THE WRAP WIDTH IS IN 640x480 PIXELS FOR THE SMALL SHEET. Under
+	// VRMenuBigSubs the text is set in the large HD font and the width was
+	// left as authored, so the briefing and the difficulty reminder wrapped
+	// every word or two (desk: "The level / of / difficulty / may be").
+	// In the headset the briefing text read as garbled or missing. Scaled with the
+	// screen like the help box (HelpScale), and kept inside the screen.
+	if (width > 0 && g_vtVRMenuBigSubs.GetFloat(0.0f) > 0.0f && g_pInterfaceResMgr)
+	{
+		width = (int)(width * g_pInterfaceResMgr->GetYRatio());
+		const int nMax = (int)(g_pInterfaceResMgr->GetScreenWidth() * 0.9f);
+		if (width > nMax) width = nMax;
+	}
 
     if (!pCtrl->Create(g_pLTClient,commandID,hString,pFont,this,width,height))
 	{
@@ -1585,6 +1805,16 @@ CSliderCtrl* CBaseFolder::CreateSlider(HSTRING hText, int helpID, int nSliderOff
 {
     if (pFont == LTNULL)
 		pFont = GetDefaultFont();
+
+	// In VR every slider is at least as wide as the VR page's: 150 scaled by
+	// the screen ratio. The layout widths (150-200) were authored for 640x480
+	// and are never scaled, so beside the screen-ratio font sheets each bar was
+	// a small box. The VR page already passes 150 * yr and is unchanged.
+	if (VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0)
+	{
+		const int nMin = (int)(150.0f * g_pInterfaceResMgr->GetYRatio());
+		if (nSliderWidth < nMin) nSliderWidth = nMin;
+	}
 
 	CSliderCtrl *pCtrl=debug_new(CSliderCtrl);
     if ( !pCtrl->Create(hText, pFont, nSliderOffset, nSliderWidth, LTFALSE, pnValue) )
@@ -2062,6 +2292,9 @@ void CBaseFolder::CreateInterfaceSFX()
 	HOBJECT hCamera = g_pGameClientShell->GetInterfaceCamera();
 	if (!hCamera) return;
 
+	// VR: a card is placed for a camera facing straight ahead, so undo the
+	// pause-look's turn first (GameClientShell.cpp).
+	g_pGameClientShell->VRSquareInterfaceCameraFor(m_nFolderID);
 
     g_pLTClient->GetObjectPos(hCamera, &g_vPos);
     g_pLTClient->GetObjectRotation(hCamera, &g_rRot);
@@ -2428,8 +2661,9 @@ void CBaseFolder::UpdateHelpText()
 	{
 		m_dwCurrHelpID = dwID;
 
-		int nWidth = m_HelpRect.right - m_HelpRect.left;
-		int nHeight = m_HelpRect.bottom - m_HelpRect.top;
+		const float fHS = HelpScale();
+		int nWidth = (int)((m_HelpRect.right - m_HelpRect.left) * fHS);
+		int nHeight = (int)((m_HelpRect.bottom - m_HelpRect.top) * fHS);
         LTRect rect(0,0,nWidth,nHeight);
         g_pLTClient->FillRect(m_hHelpSurf,&rect,kBlack);
 

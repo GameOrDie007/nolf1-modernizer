@@ -78,6 +78,14 @@ LTBOOL CFolderAdvDisplay::Build()
 	if (g_pLayoutMgr->HasCustomValue(FOLDER_ID_ADVDISPLAY,"SliderWidth"))
 		kSliderWidth = g_pLayoutMgr->GetFolderCustomInt(FOLDER_ID_ADVDISPLAY,"SliderWidth");
 
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_LIGHTMAP, IDS_MIRRORS, IDS_SHADOWS, IDS_DETAILTEXTURES, IDS_ENVIRONMENT_MAP, IDS_CHROME, IDS_TEXTURE_FILTERING, IDS_TRIPLE_BUFF };
+		kTotalWidth = LabelColumn(kTotalWidth, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+		kHeaderWidth = kTotalWidth - kSpacerWidth;
+	}
+
 	CreateTitle(IDS_TITLE_ADVDISPLAY);
 
 	AddTextItem(IDS_TEXTURE_RES, CMD_TEXTURES,	IDS_HELP_TEXTURE_RES);

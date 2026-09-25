@@ -148,6 +148,14 @@ class CPolyGridFX : public CSpecialFX
 
 		virtual uint32 GetSFXID() { return SFX_POLYGRID_ID; }
 
+		// THE AUTHORED SIZE OF THE GRID, including the one number the VR
+		// renderer needs and could not otherwise get: m_vDims.y is the wave's
+		// amplitude in world units. It arrives in the create struct from the
+		// server, where VolumeBrush::CreateSurface sets it to the brush's
+		// SurfaceHeight property. ILTClient::GetObjectDims returns (1,1,1)
+		// for a polygrid, so this is the only honest source.
+		const LTVector& GetDims() const { return m_vDims; }
+
 	protected:
 
 		void PrecalculatePlasma();

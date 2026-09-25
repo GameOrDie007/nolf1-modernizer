@@ -16,6 +16,7 @@
 #include "CharacterFx.h"
 #include "SoundMgr.h"
 #include "VarTrack.h"
+#include "VRLog.h"
 
 VarTrack	g_vtLipSyncMaxRot;
 VarTrack	g_vtLipSyncFreq;
@@ -390,6 +391,16 @@ void CNodeController::UpdateLipSyncControl(NCSTRUCT *pNodeControl)
 	// Make sure the sound handle is valid and check to see if the sound is done...
     if(!pNodeControl->hLipSyncSound || g_pLTClient->IsDone(pNodeControl->hLipSyncSound))
 	{
+		// VR DIAGNOSTIC: how long did the voice live? A healthy line lives
+		// for its duration; one the engine could not start is DONE on the
+		// first update, which is what no voice and no mouth movement looks like.
+		if (pNodeControl->hLipSyncSound)
+			VRLog::Msg("VRLip: DONE handle %p after %.2f s, %u frames driven, data %s, offset-ok %s",
+					   (void*)pNodeControl->hLipSyncSound,
+					   g_pLTClient->GetTime() - pNodeControl->fVRLipStart,
+					   pNodeControl->nVRLipFrames,
+					   (pNodeControl->pSixteenBitBuffer || pNodeControl->pEightBitBuffer) ? "yes" : "NO",
+					   (pNodeControl->nVRLipLogged & 4) ? "yes" : "never");
 		g_pLTClient->KillSound(pNodeControl->hLipSyncSound);
         pNodeControl->hLipSyncSound = LTNULL;
 
@@ -422,6 +433,17 @@ void CNodeController::UpdateLipSyncControl(NCSTRUCT *pNodeControl)
 							&pNodeControl->dwSamplesPerSecond,
 							&dwChannels);
 		
+		// VR DIAGNOSTIC, once per sound: what the engine handed back.
+		if (!(pNodeControl->nVRLipLogged & 1))
+		{
+			pNodeControl->nVRLipLogged |= 1;
+			VRLog::Msg("VRLip: DATA handle %p channels %u rate %u buffer16 %p buffer8 %p",
+					   (void*)pNodeControl->hLipSyncSound, (unsigned)dwChannels,
+					   (unsigned)pNodeControl->dwSamplesPerSecond,
+					   (void*)pNodeControl->pSixteenBitBuffer,
+					   (void*)pNodeControl->pEightBitBuffer);
+		}
+
 		// FIXME: Bug only affected by debug mode? Or maybe it just fails silently on release.
 		if (dwChannels == 0)
 		{
@@ -442,7 +464,30 @@ void CNodeController::UpdateLipSyncControl(NCSTRUCT *pNodeControl)
     uint32 dwOffset = 0;
     uint32 dwSize   = 0;
 
-    if( LT_OK == g_pLTClient->GetSoundOffset(pNodeControl->hLipSyncSound, &dwOffset, &dwSize) )
+    const LTRESULT rcOff = g_pLTClient->GetSoundOffset(pNodeControl->hLipSyncSound, &dwOffset, &dwSize);
+	// VR DIAGNOSTIC: the offset on the first frame, then once a second. An
+	// offset that never advances is a voice that is not playing whatever the
+	// handle says; an error is the engine refusing this sample outright.
+	++pNodeControl->nVRLipFrames;
+	if (rcOff != LT_OK)
+	{
+		if (!(pNodeControl->nVRLipLogged & 2))
+		{
+			pNodeControl->nVRLipLogged |= 2;
+			VRLog::Msg("VRLip: OFFSET FAILED rc %u handle %p (frame %u)",
+					   (unsigned)rcOff, (void*)pNodeControl->hLipSyncSound,
+					   pNodeControl->nVRLipFrames);
+		}
+	}
+	else if (!(pNodeControl->nVRLipLogged & 4) || (pNodeControl->nVRLipFrames % 90) == 0)
+	{
+		pNodeControl->nVRLipLogged |= 4;
+		VRLog::Msg("VRLip: OFFSET %u of %u handle %p at %.2f s (frame %u)",
+				   (unsigned)dwOffset, (unsigned)dwSize, (void*)pNodeControl->hLipSyncSound,
+				   g_pLTClient->GetTime() - pNodeControl->fVRLipStart,
+				   pNodeControl->nVRLipFrames);
+	}
+    if( LT_OK == rcOff )
 	{
 		// Determine the end of the data we wish to average over.
         const uint32 dwDivisor = uint32(g_vtLipSyncFreq.GetFloat());
@@ -1103,6 +1148,17 @@ void CNodeController::HandleNodeConrolLipSync(HSTRING hSound, LTFLOAT fRadius)
 	LTBOOL bSubtitles = LTFALSE;
 	m_aNodeControls[iNodeControl].hLipSyncSound = m_pCharacterFX->PlayLipSyncSound(szSound, fRadius, bSubtitles);
 	m_aNodeControls[iNodeControl].bShowingSubtitles = bSubtitles;
+	// VR DIAGNOSTIC. no spoken dialogue and
+	// no mouth movement during a cutscene. The mouth is driven off this very handle,
+	// so a voice that never starts, or that the engine reports done at once,
+	// silences the character AND freezes the jaw. Record the start here and
+	// the engine's answers in UpdateLipSyncControl; the lifetime is the test.
+	m_aNodeControls[iNodeControl].fVRLipStart = g_pLTClient->GetTime();
+	m_aNodeControls[iNodeControl].nVRLipFrames = 0;
+	m_aNodeControls[iNodeControl].nVRLipLogged = 0;
+	VRLog::Msg("VRLip: START '%s' radius %.0f handle %p subtitle %d",
+			   szSound, fRadius, (void*)m_aNodeControls[iNodeControl].hLipSyncSound,
+			   (int)bSubtitles);
 
 	// Increment the number of controllers for this node...
 	m_aNodes[eModelNode].cControllers++;

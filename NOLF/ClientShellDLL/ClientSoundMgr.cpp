@@ -14,6 +14,7 @@
 #include "ClientSoundMgr.h"
 #include "CommonUtilities.h"
 #include "VarTrack.h"
+#include "VRLog.h"
 
 // Global pointer to client sound mgr...
 
@@ -179,6 +180,26 @@ HLTSOUND CClientSoundMgr::PlaySound(PlaySoundInfo & psi)
 	}
 
 	LTRESULT hResult = g_pLTClient->PlaySound(&psi);
+
+	// VR DIAGNOSTIC: every sound the client starts, with the engine's verdict.
+	// 12 September: with a 3D provider selected the engine refused every
+	// dialogue line and guard bark (all MP3-in-WAV) and gave no handle, while
+	// PCM sounds played. Which FORMATS fail, and under which provider, is what
+	// decides the fix - so every start is logged, capped so a firefight cannot
+	// flood the log.
+	{
+		static int s_nVRSndLogged = 0;
+		if (s_nVRSndLogged < 400)
+		{
+			++s_nVRSndLogged;
+			VRLog::Msg("VRSnd: %s '%s' flags 0x%x%s%s rc %u handle %p",
+					   (hResult == LT_OK) ? "ok  " : "FAIL",
+					   psi.m_szSoundName, (unsigned)psi.m_dwFlags,
+					   (psi.m_dwFlags & PLAYSOUND_3D) ? " 3D" : " 2D",
+					   (psi.m_dwFlags & PLAYSOUND_LOOP) ? " loop" : "",
+					   (unsigned)hResult, (void*)psi.m_hSound);
+		}
+	}
 
 	if (hResult == LT_OK)
 	{

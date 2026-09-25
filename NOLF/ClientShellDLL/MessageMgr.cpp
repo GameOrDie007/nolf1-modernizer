@@ -23,8 +23,22 @@
 #include "InterfaceResMgr.h"
 #include "VarTrack.h"
 #include "ConsoleMgr.h"
+#include "VRLog.h"
+#include "VRShared.h"
+#include "ClientUtilities.h"
 
 VarTrack		g_vtMaxNumMessages;
+
+// THE MESSAGE LIST IN A HEADSET. Authored at the screen's top-left corner, and
+// the 2D layer spans the eye's width, so pickups and objective updates sat
+// about 40 degrees out - past where the eye reads.
+// In VR the list starts at VRMsgX, VRMsgY (fractions of the screen; defaults
+// put it about 28 degrees left of and 20 above the forward ray, clear of the time-and-place caption) and wraps at
+// VRMsgWidth of the screen. VRMsgX 0 restores the corner.
+static bool VRMsgPlaced()
+{
+	return VRShared::IsLive() && GetConsoleFloat("VRMsgX", 0.17f) > 0.0f;
+}
 
 
 CMessageMgr*    g_pMessageMgr   = LTNULL;
@@ -286,6 +300,8 @@ void CMessageMgr::AddLine( HSTRING hMsg, eMessageType eType, HSURFACE hSurf )
 		pMsg->textOffset.x = 0;
 
 	int nWidth = (int)(480.0f * g_pInterfaceResMgr->GetXRatio());
+	if (VRMsgPlaced())
+		nWidth = (int)(GetConsoleFloat("VRMsgWidth", 0.40f) * (float)g_pInterfaceResMgr->GetScreenWidth());
 
     LTIntPt txtSize = m_pForeFont->GetTextExtentsFormat(hMsg,nWidth);
 
@@ -335,6 +351,11 @@ void CMessageMgr::Draw( void )
 
 	int y = 5;
 	int baseX = 5;
+	if (VRMsgPlaced())
+	{
+		baseX = (int)(GetConsoleFloat("VRMsgX", 0.17f) * (float)nScreenWidth);
+		y     = (int)(GetConsoleFloat("VRMsgY", 0.10f) * (float)nScreenHeight);
+	}
 
 	for ( i = 0; i < nCount; i++)
 	{
@@ -671,10 +692,30 @@ void CInputLine::Set( char *pzText )
 
 void CInputLine::Send( void )
 {
+	// WHAT WAS ACTUALLY IN THE BOX when the player pressed Enter.
+	//
+	// With a headset on the chat line is fed by VRTypeWhenUnfocused rather than
+	// by WM_CHAR, because nothing the host knows about holds keyboard focus.
+	// That path can prove it CALLED OnChar for each key; only this line can
+	// prove the characters landed in the buffer, in order, and that the cheat
+	// check then saw them. Without it, a cheat typed with no effect has
+	// three indistinguishable causes.
+	{
+		static int s_nSaidSend = 0;
+		if (s_nSaidSend < 12)
+		{
+			++s_nSaidSend;
+			VRLog::Msg("VRSend: the chat line contained '%s' (%d chars);"
+				" handing it to the cheat check",
+				m_zText ? m_zText : "(null)", m_nTextLen);
+		}
+	}
+
 	// First check and see if it was a cheat that was entered...
 
 	if (g_pCheatMgr->Check(m_zText))
 	{
+		VRLog::Msg("VRSend: the cheat check TOOK it");
 		g_pClientSoundMgr->PlayInterfaceSound("Menu\\Snd\\Cheat.wav");
 		Term();
 		return;

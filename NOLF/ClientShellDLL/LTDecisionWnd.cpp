@@ -134,7 +134,7 @@ BOOL CLTDecisionWnd::DrawToSurface(HSURFACE hSurfDest)
 BOOL CLTDecisionWnd::ShowWindow(BOOL bShow, BOOL bPlaySound, BOOL bAnimate)
 {
 
-	m_pFont = g_pInterfaceResMgr->GetMediumFont();
+	m_pFont = g_pInterfaceResMgr->GetDialogueFont(LTFALSE);
 
 	if(!bAnimate)
 		return CLTMaskedWnd::ShowWindow(bShow,bPlaySound,bAnimate);
@@ -260,7 +260,25 @@ BOOL CLTDecisionWnd::DisplayText(CStringArray *pcollDecisions, CLTWnd* pWnd, BOO
 	m_nCurSelection = 0;
 	int i;
 
-	m_pFont = g_pInterfaceResMgr->GetMediumFont();
+	// THE CHOICES TAKE THE MESSAGE FONT, which is the large HD sheet under
+	// VRMenuBigSubs (GetMsgForeFont) - the dialogue LINES already do. This
+	// asked for the medium font by name and got the authored 640x480 one.
+	// Headset testing, HQ: the dialogue box was too small to tell which choice
+	// was being picked. The wrap width follows the font, by the height ratio.
+	m_pFont = g_pInterfaceResMgr->GetDialogueFont(LTTRUE);
+	if (!m_pFont) m_pFont = g_pInterfaceResMgr->GetDialogueFont(LTFALSE);
+	int nMaxWidth = DECISIONWND_MAX_WIDTH;
+	{
+		extern float VRDialogueScale();
+		CLTGUIFont* pMed = g_pInterfaceResMgr->GetDialogueFont(LTFALSE);
+		if (VRDialogueScale() > 1.0f)
+			nMaxWidth = (int)(DECISIONWND_MAX_WIDTH * VRDialogueScale());	// the box's own proportion, like the question box above it
+		else
+		if (pMed && m_pFont && pMed->GetHeight() > 0 && m_pFont != pMed)
+			nMaxWidth = DECISIONWND_MAX_WIDTH * m_pFont->GetHeight() / pMed->GetHeight();
+		const int nScreen = g_pGameClientShell->GetScreenWidth() - 40;
+		if (nMaxWidth > nScreen) nMaxWidth = nScreen;
+	}
 
 
 	// Gotta have at least 2 decisions
@@ -283,14 +301,16 @@ BOOL CLTDecisionWnd::DisplayText(CStringArray *pcollDecisions, CLTWnd* pWnd, BOO
 	m_byActivatedSelection = 0;
 
 
-    LTIntPt ptPos = g_pLayoutMgr->GetDecisionTextOffset();
+	extern LTIntPt VRDialogueScaled(LTIntPt pt);
+	extern float VRDialogueScale();
+    LTIntPt ptPos = VRDialogueScaled(g_pLayoutMgr->GetDecisionTextOffset());
 	for(i=0;((i<pcollDecisions->GetSize()) && (i<MAX_DECISIONS));i++)
 	{
 		if(pcollDecisions->GetAt(i).IsEmpty())
 			return FALSE;
 
 		// Set the window position
-		ptCur = m_DecisionWnds[i].SetText(pcollDecisions->GetAt(i),DECISIONWND_MAX_WIDTH);
+		ptCur = m_DecisionWnds[i].SetText(pcollDecisions->GetAt(i),nMaxWidth);
 		m_DecisionWnds[i].SetSelectable(TRUE);
 		m_DecisionWnds[i].MoveWindow(ptPos.x,ptPos.y+ptMax.y);
 		ptMax.x = Max(ptMax.x,ptCur.x);
@@ -300,7 +320,7 @@ BOOL CLTDecisionWnd::DisplayText(CStringArray *pcollDecisions, CLTWnd* pWnd, BOO
 
 		// If we've got another decision, add space inbetween
 		if(i+1 < pcollDecisions->GetSize())
-			ptMax.y += g_pLayoutMgr->GetDecisionSpacing();
+			ptMax.y += (int)(g_pLayoutMgr->GetDecisionSpacing() * VRDialogueScale());
 	}
 
 	// Set our number of decisions
@@ -313,7 +333,7 @@ BOOL CLTDecisionWnd::DisplayText(CStringArray *pcollDecisions, CLTWnd* pWnd, BOO
 
 	// Adjust yPos up or down depending on if we're supposed to be
 	// above or below the specified yPos
-	int yPos = g_pLayoutMgr->GetDecisionPosition();
+	int yPos = (int)(g_pLayoutMgr->GetDecisionPosition() * VRDialogueScale());
 	if(pWnd)
 	{
 		if(bBelow)

@@ -19,4 +19,6 @@ Final_Release
 *.sdf
 UpgradeLog*.htm
 ART
+# ...but the splash lives under ASSETS/MENU/ART and ships in the rez
+!ASSETS/MENU/ART/
 *.pdb

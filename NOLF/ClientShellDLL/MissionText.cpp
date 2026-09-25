@@ -4,6 +4,8 @@
 
 #include "stdafx.h"
 #include "MissionText.h"
+#include "VRLog.h"
+extern VarTrack g_vtVRCaptions;
 #include "InterfaceResMgr.h"
 #include "LayoutMgr.h"
 #include "SoundMgr.h"
@@ -43,6 +45,16 @@ void	CMissionText::Init()
 	m_lfDrawData.dwFlags = LTF_DRAW_TIMED | LTF_DRAW_FORMATTED | LTF_TIMED_ALL | LTF_EXTRA_LOCKLAST;
 	m_lfDrawData.byJustify = LTF_JUSTIFY_LEFT;
     m_lfDrawData.dwFormatWidth      = (uint32)g_pLayoutMgr->GetMissionTextWidth();
+	// The font is the large HD sheet under VRMenuBigSubs (InterfaceResMgr), so
+	// the wrap width - a 640x480 layout number - follows the screen with it.
+	{
+		extern VarTrack g_vtVRMenuBigSubs;
+		if (g_vtVRCaptions.GetFloat(1.0f) > 0.0f && g_pInterfaceResMgr)
+			m_lfDrawData.dwFormatWidth = g_pInterfaceResMgr->GetScreenWidth() / 3;		// VR captions: a third of the eye
+		else
+		if (g_vtVRMenuBigSubs.GetFloat(1.0f) > 0.0f && g_pInterfaceResMgr)
+			m_lfDrawData.dwFormatWidth = (uint32)(m_lfDrawData.dwFormatWidth * g_pInterfaceResMgr->GetXRatio() * 0.6f);
+	}
 	m_lfDrawData.fLetterDelay		= g_pLayoutMgr->GetMissionTextLetterDelay();
 	m_lfDrawData.fLineDelay			= g_pLayoutMgr->GetMissionTextLineDelay();
 	m_lfDrawData.fLineScrollTime	= g_pLayoutMgr->GetMissionTextLineScrollTime();
@@ -54,6 +66,14 @@ void	CMissionText::Init()
 	m_pos				= g_pLayoutMgr->GetMissionTextPos();
 
 	m_nLineHeight		= g_pInterfaceResMgr->GetMsgForeFont()->GetHeight();
+	{
+		extern VarTrack g_vtVRMenuBigSubs;
+		VRLog::Msg("MissionText: font height %d (small %d, large %d), VRMenuBigSubs %.1f, wrap %u",
+			m_nLineHeight,
+			g_pInterfaceResMgr->GetSmallFont() ? g_pInterfaceResMgr->GetSmallFont()->GetHeight() : -1,
+			g_pInterfaceResMgr->GetLargeFont() ? g_pInterfaceResMgr->GetLargeFont()->GetHeight() : -1,
+			g_vtVRMenuBigSubs.GetFloat(1.0f), (unsigned)m_lfDrawData.dwFormatWidth);
+	}
 	int numLines		= g_pLayoutMgr->GetMissionTextNumLines();
 
 	m_dwWidth = m_lfDrawData.dwFormatWidth + 2;
@@ -132,6 +152,20 @@ void	CMissionText::Draw()
 
 	int x = (int) ((float)m_pos.x * g_pInterfaceResMgr->GetXRatio());
 	int y = (int) ((float)m_pos.y * g_pInterfaceResMgr->GetYRatio());
+	int nS = 1;
+	if (g_vtVRCaptions.GetFloat(1.0f) > 0.0f)
+	{
+		// VR captions: centred, a little below the middle of the view, with a
+		// shadow sized for the large sheet. See Subtitle.cpp.
+		x = ((int)g_pInterfaceResMgr->GetScreenWidth() - (int)m_dwWidth) / 2;
+		// ABOVE the subtitle block, not on it. Subtitle.cpp puts dialogue at
+		// 62% of the height; a location caption ("Hamburg, West Germany")
+		// drawn at the same 62% overprinted it whenever both were live -
+		// the 12 September headset batch, "On final approach to Chateau" through
+		// "Battle stations". The caption's bottom now sits at 60%.
+		y = (int)(g_pInterfaceResMgr->GetScreenHeight() * 0.60f) - (int)m_dwHeight;
+		nS = (m_nLineHeight >= 40) ? 3 : 2;
+	}
 
 	uint8 nFade = (uint8)(255.0f * m_fAlpha);
 	HLTCOLOR hColor = SETRGB(nFade,nFade,nFade);
@@ -139,7 +173,7 @@ void	CMissionText::Draw()
 
 	g_pLTClient->SetOptimized2DBlend(LTSURFACEBLEND_MASK);
 	g_pLTClient->SetOptimized2DColor(hColor);
-	g_pLTClient->DrawSurfaceToSurface(g_pLTClient->GetScreenSurface(), m_hForeSurf, NULL, x+1, y+1);
+	g_pLTClient->DrawSurfaceToSurface(g_pLTClient->GetScreenSurface(), m_hForeSurf, NULL, x+nS, y+nS);
 	g_pLTClient->SetOptimized2DBlend(LTSURFACEBLEND_ADD);
 	g_pLTClient->DrawSurfaceToSurface(g_pLTClient->GetScreenSurface(), m_hForeSurf, NULL, x, y);
 	g_pLTClient->SetOptimized2DColor(kWhite);

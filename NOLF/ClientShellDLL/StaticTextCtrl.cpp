@@ -4,6 +4,7 @@
 
 #include "stdafx.h"
 #include "ltguimgr.h"
+#include "VRLog.h"
 #include "StaticTextCtrl.h"
 
 //////////////////////////////////////////////////////////////////////
@@ -285,6 +286,14 @@ void CStaticTextCtrl::CreateSurface()
 			}
 			m_pClientDE->OptimizeSurface(m_hSurface, backcolor);
 
+			// EVERY STATIC TEXT SURFACE, as it is made: who, how big, and the
+			// head of the text. See FolderBriefing.cpp, 13 September.
+			{
+				const char* pS = m_pClientDE->GetStringData(m_hString);
+				VRLog::Msg("STATIC TEXT %p: surface %ux%u (wrap %u, fixed %d) at %d,%d  \"%.40s\"",
+					this, dwWidth, dwHeight, m_dwWidth, (int)m_bFixedWidth,
+					m_pos.x, m_pos.y, pS ? pS : "(null)");
+			}
 		}
 	}
 }

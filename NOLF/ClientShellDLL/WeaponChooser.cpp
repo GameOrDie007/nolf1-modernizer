@@ -456,3 +456,228 @@ void CAmmoChooser::Draw()
 	}
 
 }
+
+
+// ----------------------------------------------------------------------- //
+//
+//	CVRWeaponWheel - see WeaponChooser.h.
+//
+// ----------------------------------------------------------------------- //
+
+#include "PlayerStats.h"
+#include "VRLog.h"
+#include <math.h>
+
+extern VarTrack g_vtVRMenuBigSubs;
+extern VarTrack g_vtVRWheelSize;
+
+CVRWeaponWheel::CVRWeaponWheel()
+{
+	m_bIsOpen = LTFALSE;
+	m_nSlots = 0;
+	m_nHighlight = -1;
+	m_bDeflected = LTFALSE;
+	m_hName = LTNULL;
+	m_fOpenTime = 0.0f;
+	for (int i = 0; i < VRWHEEL_MAX_SLOTS; i++)
+	{
+		m_nWeapon[i] = 0; m_hSurf[i] = LTNULL; m_nSurfW[i] = m_nSurfH[i] = 0;
+	}
+}
+
+CVRWeaponWheel::~CVRWeaponWheel()
+{
+	Term();
+}
+
+void CVRWeaponWheel::Init()
+{
+}
+
+void CVRWeaponWheel::Term()
+{
+	FreeSurfaces();
+	if (m_hName) { g_pLTClient->FreeString(m_hName); m_hName = LTNULL; }
+	m_bIsOpen = LTFALSE;
+}
+
+void CVRWeaponWheel::FreeSurfaces()
+{
+	for (int i = 0; i < VRWHEEL_MAX_SLOTS; i++)
+	{
+		if (m_hSurf[i]) { g_pLTClient->DeleteSurface(m_hSurf[i]); m_hSurf[i] = LTNULL; }
+	}
+	m_nSlots = 0;
+}
+
+LTBOOL CVRWeaponWheel::Open()
+{
+	if (m_bIsOpen) return LTTRUE;
+	if (!g_pWeaponMgr || !g_pInterfaceMgr) return LTFALSE;
+	CPlayerStats* pStats = g_pInterfaceMgr->GetPlayerStats();
+	if (!pStats) return LTFALSE;
+
+	FreeSurfaces();
+
+	// Every weapon the player carries that has a command id, in id order -
+	// the same set the chooser walks with next/previous.
+	const int nNum = g_pWeaponMgr->GetNumWeapons();
+	for (int id = 0; id < nNum && m_nSlots < VRWHEEL_MAX_SLOTS; id++)
+	{
+		if (!pStats->HaveWeapon((uint8)id)) continue;
+		if (g_pWeaponMgr->GetCommandId(id) < 0) continue;
+		WEAPON* pW = g_pWeaponMgr->GetWeapon(id);
+		if (!pW) continue;
+		const int k = m_nSlots++;
+		m_nWeapon[k] = (uint8)id;
+		m_hSurf[k] = g_pLTClient->CreateSurfaceFromBitmap(pW->szIcon);
+		if (m_hSurf[k])
+		{
+			g_pLTClient->OptimizeSurface(m_hSurf[k], SETRGB_T(255,0,255));
+			g_pLTClient->GetSurfaceDims(m_hSurf[k], &m_nSurfW[k], &m_nSurfH[k]);
+		}
+	}
+
+	if (m_nSlots < 1) { VRLog::Msg("VR wheel: nothing to choose from"); return LTFALSE; }
+
+	// Start on the weapon in the hand, so a click-click is a no-op.
+	m_nHighlight = -1;
+	const int nCur = g_pGameClientShell->GetWeaponModel()->GetWeaponId();
+	for (int k = 0; k < m_nSlots; k++)
+		if (m_nWeapon[k] == nCur) m_nHighlight = k;
+	m_bDeflected = LTFALSE;
+	m_bIsOpen = LTTRUE;
+	m_fOpenTime = g_pLTClient->GetTime();
+	if (m_hName) { g_pLTClient->FreeString(m_hName); m_hName = LTNULL; }
+	if (m_nHighlight >= 0)
+	{
+		WEAPON* pW = g_pWeaponMgr->GetWeapon(m_nWeapon[m_nHighlight]);
+		if (pW) m_hName = g_pLTClient->FormatString(pW->nNameId);
+	}
+	g_pClientSoundMgr->PlayInterfaceSound((char*)g_pInterfaceResMgr->GetSoundSelect());
+	VRLog::Msg("VR wheel: open with %d weapons, in hand %d", m_nSlots, nCur);
+	return LTTRUE;
+}
+
+void CVRWeaponWheel::Close(LTBOOL bSelect)
+{
+	if (!m_bIsOpen) return;
+	m_bIsOpen = LTFALSE;
+	if (bSelect && m_nHighlight >= 0 && m_nHighlight < m_nSlots)
+	{
+		const int nId = m_nWeapon[m_nHighlight];
+		const int nCmd = g_pWeaponMgr->GetCommandId(nId);
+		VRLog::Msg("VR wheel: selected weapon %d (command %d)", nId, nCmd);
+		if (nCmd >= 0 && nId != g_pGameClientShell->GetWeaponModel()->GetWeaponId())
+			g_pGameClientShell->GetWeaponModel()->ChangeWeapon((uint8)nCmd);
+	}
+	else VRLog::Msg("VR wheel: closed without a choice");
+	FreeSurfaces();
+	if (m_hName) { g_pLTClient->FreeString(m_hName); m_hName = LTNULL; }
+}
+
+void CVRWeaponWheel::Update(float fStickX, float fStickY)
+{
+	if (!m_bIsOpen || m_nSlots < 1) return;
+	const float fMag = (float)sqrt(fStickX * fStickX + fStickY * fStickY);
+	{
+		// The stick as the wheel sees it, on every crossing of its thresholds.
+		static int s_nZone = -1;
+		const int nZone = (fMag > 0.5f) ? 2 : (fMag < 0.25f) ? 0 : 1;
+		if (nZone != s_nZone)
+		{
+			s_nZone = nZone;
+			VRLog::Msg("VR wheel: stick %.2f,%.2f mag %.2f -> zone %d (deflected %d, highlight %d)",
+				fStickX, fStickY, fMag, nZone, (int)m_bDeflected, m_nHighlight);
+		}
+	}
+	if (fMag > 0.5f)
+	{
+		// Slot 0 at the top, clockwise. OpenXR sticks: +Y is up, +X right.
+		float fAng = (float)atan2((double)fStickX, (double)fStickY);	// 0 = up, +ve = right
+		if (fAng < 0.0f) fAng += 6.2831853f;
+		const float fStep = 6.2831853f / (float)m_nSlots;
+		int k = (int)floor((fAng + fStep * 0.5f) / fStep) % m_nSlots;
+		if (k < 0) k += m_nSlots;
+		if (k != m_nHighlight)
+		{
+			m_nHighlight = k;
+			if (m_hName) { g_pLTClient->FreeString(m_hName); m_hName = LTNULL; }
+			WEAPON* pW = g_pWeaponMgr->GetWeapon(m_nWeapon[k]);
+			if (pW) m_hName = g_pLTClient->FormatString(pW->nNameId);
+			g_pClientSoundMgr->PlayInterfaceSound((char*)g_pInterfaceResMgr->GetSoundChange());
+		}
+		m_bDeflected = LTTRUE;
+	}
+	else if (fMag < 0.25f && m_bDeflected)
+	{
+		// The flick: out to a slot and back to centre is the choice.
+		Close(LTTRUE);
+	}
+}
+
+void CVRWeaponWheel::Draw()
+{
+	if (!m_bIsOpen || m_nSlots < 1) return;
+
+	HSURFACE hScreen = g_pLTClient->GetScreenSurface();
+	uint32 nScreenW = 0, nScreenH = 0;
+	g_pLTClient->GetSurfaceDims(hScreen, &nScreenW, &nScreenH);
+	if (!nScreenW || !nScreenH) return;
+	const float yRatio = (float)nScreenH / 480.0f;
+	{
+		static int s_nSaidDims = 0;
+		if (s_nSaidDims++ < 2)
+			VRLog::Msg("VR wheel: screen surface %ux%u, interface says %ux%u (ratio %.2f)",
+				nScreenW, nScreenH, g_pInterfaceResMgr->GetScreenWidth(),
+				g_pInterfaceResMgr->GetScreenHeight(), g_pInterfaceResMgr->GetYRatio());
+	}
+
+	// SIZED FOR THE EYE, NOT THE SCREEN. The HUD is drawn on the logical
+	// screen (2560x1384, both eyes wide) and the renderer fits that width
+	// into the room each eye has beside its optical centre - about 0.38 of
+	// logical size (render2d: fKx = room * eyeW / screenW). A ring a quarter
+	// of the height here came out a tenth in the headset (desk-measured).
+	// ...and the ring cannot leave the logical screen: anything past its top
+	// or bottom edge is clipped before the eye ever sees it (desk: the top
+	// and bottom slots of a six-slot wheel simply missing). So the ring is as
+	// large as the logical height allows - radius 0.36 with icons 0.22, the
+	// highlighted one 0.27 - which lands at about a seventh of the eye. A
+	// bigger wheel needs a bigger HUD layer, which is the renderer's fit and
+	// not this file's. VRWheelSize scales all of it.
+	const float fSize = (g_vtVRWheelSize.GetFloat(1.0f) > 0.1f) ? g_vtVRWheelSize.GetFloat(1.0f) : 1.0f;
+	const int cx = (int)nScreenW / 2;
+	const int cy = (int)nScreenH / 2;
+	const int nRadius = (int)(nScreenH * 0.36f * fSize);
+	const int nIcon   = (int)(nScreenH * 0.22f * fSize);
+	const int nIconHi = (int)(nScreenH * 0.27f * fSize);
+
+	const LTVector vHi = g_pLayoutMgr->GetChooserHighlightColor();
+
+	for (int k = 0; k < m_nSlots; k++)
+	{
+		const float fAng = 6.2831853f * (float)k / (float)m_nSlots;	// 0 = up, clockwise
+		const int x = cx + (int)(nRadius * sin(fAng));
+		const int y = cy - (int)(nRadius * cos(fAng));
+		const int n = (k == m_nHighlight) ? nIconHi : nIcon;
+		LTRect rc(x - n / 2, y - n / 2, x + n / 2, y + n / 2);
+		if (k == m_nHighlight)
+		{
+			LTRect rb(rc.left - 4, rc.top - 4, rc.right + 4, rc.bottom + 4);
+			g_pOptimizedRenderer->FillRect(hScreen, &rb, SETRGB_T(vHi.x, vHi.y, vHi.z));
+		}
+		if (m_hSurf[k])
+			g_pLTClient->ScaleSurfaceToSurfaceTransparent(hScreen, m_hSurf[k], &rc, LTNULL, SETRGB_T(255,0,255));
+	}
+
+	// The centre dot, and the highlighted weapon's name under it.
+	{
+		const int d = (int)(nScreenH * 0.008f * fSize);
+		LTRect rd(cx - d, cy - d, cx + d, cy + d);
+		g_pOptimizedRenderer->FillRect(hScreen, &rd, SETRGB_T(255, 255, 255));
+	}
+	CLTGUIFont* pFont = (g_vtVRMenuBigSubs.GetFloat(1.0f) > 0.0f)
+		? g_pInterfaceResMgr->GetLargeFont() : g_pInterfaceResMgr->GetChooserFont();
+	if (pFont && m_hName)
+		pFont->Draw(m_hName, hScreen, cx, cy + (int)(nScreenH * 0.06f * fSize), LTF_JUSTIFY_CENTER, kWhite);
+}

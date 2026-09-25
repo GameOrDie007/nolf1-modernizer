@@ -603,6 +603,14 @@ LTBOOL CWeapon::AddMod(CModData* pMod)
 
     LTBOOL bRet = LTFALSE;
 
+	// A mod already held is not added again: the cheat that grants every
+	// mod is re-sent until a gun is in the hand, and each repeat used to
+	// take another of the four slots.
+	for (int k=0; k < W_MAX_MODS; k++)
+	{
+		if (m_Mods[k].m_nID == pMod->m_nID) return LTTRUE;
+	}
+
 	for (int i=0; i < W_MAX_MODS; i++)
 	{
 		if (m_Mods[i].m_nID == WMGR_INVALID_ID)

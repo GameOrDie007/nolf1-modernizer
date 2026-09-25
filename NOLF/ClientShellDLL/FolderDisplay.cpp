@@ -2,6 +2,7 @@
 //
 //////////////////////////////////////////////////////////////////////
 #include "stdafx.h"
+#include "VRLog.h"
 #include "FolderDisplay.h"
 #include "FolderMgr.h"
 #include "FolderCommands.h"
@@ -9,6 +10,7 @@
 
 #include "GameClientShell.h"
 #include "GameSettings.h"
+#include "VRShared.h"
 extern CGameClientShell* g_pGameClientShell;
 extern SDL_Window* g_SDLWindow;
 
@@ -109,13 +111,30 @@ LTBOOL CFolderDisplay::Build()
 	BuildRendererArray();
 
 	// Add the "renderer" option
-    m_pRendererCtrl = AddCycleItem(IDS_DISPLAY_RENDERER,IDS_HELP_RENDERER,100,25,LTNULL);
+	// THE VALUE COLUMN SCALES WITH THE SCREEN. Every other options page
+	// multiplies its column offset by the Y ratio; this one passed 100, 200
+	// and 225 raw, which at 640x480 was fine and at 3840x2076 under the
+	// large font put "d3dstub.ren" on top of "Renderer". One column for all
+	// six rows, scaled like the rest.
+	const LTFLOAT fYR = g_pInterfaceResMgr->GetYRatio();
+	// Measured against the labels (CBaseFolder::LabelColumn): "Intel HD
+	// Graphics Fix" outgrew 225 under the scaled sheets. The cycle rows take
+	// kCol - kSpc as their header so their values line up with the toggles'.
+	static const int kLabels[] = { IDS_DISPLAY_RENDERER, IDS_DISPLAY_RESOLUTION, IDS_WINDOWED_MODE,
+		IDS_DISPLAY_TEXTURE, IDS_HARDWARE_CURSOR, IDS_INTEL_BLACKSCREEN_FIX };
+	const int kCol = LabelColumn((int)(225 * fYR), kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	const int kSpc = (int)(25 * fYR);
+    m_pRendererCtrl = AddCycleItem(IDS_DISPLAY_RENDERER,IDS_HELP_RENDERER,kCol-kSpc,kSpc,LTNULL);
 
 	unsigned int i;
 	for (i=0; i < m_rendererArray.GetSize(); i++)
 	{
 		// Load the renderer formating text.  This is "Renderer: [%s - %s]" in English
-        HSTRING hRendererFormat=g_pLTClient->FormatString(IDS_DMODE_RENDERER, m_rendererArray[i].m_renderDll, m_rendererArray[i].m_description);
+		// In VR the description alone: "file.ren - description" beside the
+		// measured column runs off the menu surface with the scaled sheets.
+        HSTRING hRendererFormat = (VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0)
+			? g_pLTClient->CreateString(m_rendererArray[i].m_description)
+			: g_pLTClient->FormatString(IDS_DMODE_RENDERER, m_rendererArray[i].m_renderDll, m_rendererArray[i].m_description);
 		m_pRendererCtrl->AddString(hRendererFormat);
         g_pLTClient->FreeString(hRendererFormat);
 	}
@@ -127,24 +146,24 @@ LTBOOL CFolderDisplay::Build()
 //	}
 
 	// Add the "resolution" control
-    m_pResolutionCtrl = AddCycleItem(IDS_DISPLAY_RESOLUTION,IDS_HELP_RESOLUTION,200,25,LTNULL, LTFALSE);
+    m_pResolutionCtrl = AddCycleItem(IDS_DISPLAY_RESOLUTION,IDS_HELP_RESOLUTION,kCol-kSpc,kSpc,LTNULL, LTFALSE);
 
-	m_pWindowedMode = AddToggle(IDS_WINDOWED_MODE, IDS_HELP_WINDOWED_MODE, 225, &m_bWindowedMode);
+	m_pWindowedMode = AddToggle(IDS_WINDOWED_MODE, IDS_HELP_WINDOWED_MODE, kCol, &m_bWindowedMode);
 	m_pWindowedMode->SetOnString(IDS_ON);
 	m_pWindowedMode->SetOffString(IDS_OFF);
 
 	// Setup the resolution control based on the currently selected renderer
 	SetupResolutionCtrl();
 
-	CToggleCtrl *pToggle = AddToggle(IDS_DISPLAY_TEXTURE,IDS_HELP_TEXTUREDEPTH,225,&m_bTexture32);
+	CToggleCtrl *pToggle = AddToggle(IDS_DISPLAY_TEXTURE,IDS_HELP_TEXTUREDEPTH,kCol,&m_bTexture32);
 	pToggle->SetOnString(IDS_DISPLAY_32BIT);
 	pToggle->SetOffString(IDS_DISPLAY_16BIT);
 
-	m_pHardwareCursor = AddToggle(IDS_HARDWARE_CURSOR,IDS_HELP_HARDWARE_CURSOR,225,&m_bHardwareCursor);
+	m_pHardwareCursor = AddToggle(IDS_HARDWARE_CURSOR,IDS_HELP_HARDWARE_CURSOR,kCol,&m_bHardwareCursor);
 	m_pHardwareCursor->SetOnString(IDS_ON);
 	m_pHardwareCursor->SetOffString(IDS_OFF);
 
-	m_pBlackScreenFixCtrl = AddToggle(IDS_INTEL_BLACKSCREEN_FIX, IDS_HELP_INTEL_BLACKSCREEN_FIX, 225, &m_bBlackScreenFix);
+	m_pBlackScreenFixCtrl = AddToggle(IDS_INTEL_BLACKSCREEN_FIX, IDS_HELP_INTEL_BLACKSCREEN_FIX, kCol, &m_bBlackScreenFix);
 	m_pBlackScreenFixCtrl->SetOnString(IDS_ON);
 	m_pBlackScreenFixCtrl->SetOffString(IDS_OFF);
 
@@ -381,6 +400,27 @@ LTBOOL CFolderDisplay::SetRenderer(int nRendererIndex, int nResolutionIndex, boo
 		{
             return LTFALSE;
 		}
+
+		// THE SAME SIZE ON THE SAME DLL IS NOT A CHANGE EITHER. IsRendererEqual
+		// also compares the card name and description, and the engine's idea
+		// of the current mode carries whatever those were at startup - which
+		// under the VR renderer is not what its mode list says, because the
+		// engine never asked it for one until this page opened. Left alone,
+		// backing out of this page would "switch" to the same renderer at
+		// the same size: a full renderer restart, and the size written into
+		// autoexec.cfg. Backing out must be a no-op unless something the
+		// player can see actually differs.
+		if (!bWindowedModeChanged
+			&& newMode.m_Width == currentMode.m_Width
+			&& newMode.m_Height == currentMode.m_Height
+			&& newMode.m_BitDepth == currentMode.m_BitDepth
+			&& _mbsicmp((const unsigned char*)newMode.m_RenderDLL,
+						(const unsigned char*)currentMode.m_RenderDLL) == 0)
+		{
+			VRLog::Msg("FolderDisplay: same DLL and size (%s %ux%ux%u) - not switching",
+					   newMode.m_RenderDLL, newMode.m_Width, newMode.m_Height, newMode.m_BitDepth);
+            return LTFALSE;
+		}
 	}
 
 	// Set the renderer mode
@@ -500,7 +540,12 @@ void CFolderDisplay::OnFocus(LTBOOL bFocus)
 		RMode currentMode;
 		g_pLTClient->GetRenderMode(&currentMode);
 
+		VRLog::Msg("FolderDisplay: engine's current mode is dll '%s' card '%s' desc '%s' %ux%ux%u hw %d",
+				   currentMode.m_RenderDLL, currentMode.m_InternalName, currentMode.m_Description,
+				   currentMode.m_Width, currentMode.m_Height, currentMode.m_BitDepth, (int)currentMode.m_bHardware);
+
 		// Set the renderer controls so that they match the currently selected renderer
+		LTBOOL bMatched = LTFALSE;
 		unsigned int n;
 		for (n=0; n < m_rendererArray.GetSize(); n++)
 		{
@@ -519,6 +564,36 @@ void CFolderDisplay::OnFocus(LTBOOL bFocus)
 
 					// Set the resolution index
 					m_pResolutionCtrl->SetSelIndex(i);
+					bMatched = LTTRUE;
+				}
+			}
+		}
+
+		// NO STRING MATCH: PICK THE CURRENT SIZE ON THE CURRENT DLL. Otherwise
+		// the page opens on the first entry - 640x480 - and shows that as the
+		// current resolution, which is both wrong and, before the guard in
+		// SetRenderer, what backing out would have applied.
+		if (!bMatched)
+		{
+			for (n=0; n < m_rendererArray.GetSize() && !bMatched; n++)
+			{
+				if (_mbsicmp((const unsigned char*)m_rendererArray[n].m_renderDll,
+							 (const unsigned char*)currentMode.m_RenderDLL) != 0)
+					continue;
+				unsigned int i;
+				for (i=0; i < m_rendererArray[n].m_resolutionArray.GetSize(); i++)
+				{
+					const FolderDisplayResolution& r = m_rendererArray[n].m_resolutionArray[i];
+					if (r.m_dwWidth == currentMode.m_Width && r.m_dwHeight == currentMode.m_Height
+						&& r.m_dwBitDepth == currentMode.m_BitDepth)
+					{
+						m_pRendererCtrl->SetSelIndex(n);
+						SetupResolutionCtrl();
+						m_pResolutionCtrl->SetSelIndex(i);
+						bMatched = LTTRUE;
+						VRLog::Msg("FolderDisplay: matched the current size only (renderer %u, resolution %u)", n, i);
+						break;
+					}
 				}
 			}
 		}

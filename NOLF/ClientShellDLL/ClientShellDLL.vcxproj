@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -422,6 +422,7 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClCompile Include="FolderObjectives.cpp" />
     <ClCompile Include="FolderOptions.cpp" />
     <ClCompile Include="FolderPerformance.cpp" />
+    <ClCompile Include="FolderVR.cpp" />
     <ClCompile Include="FolderPlayer.cpp" />
     <ClCompile Include="FolderSave.cpp" />
     <ClCompile Include="FolderSingle.cpp" />
@@ -514,6 +515,9 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClCompile Include="Subtitle.cpp" />
     <ClCompile Include="TracerFX.cpp" />
     <ClCompile Include="VehicleMgr.cpp" />
+    <ClCompile Include="VRLog.cpp" />
+    <ClCompile Include="VRShared.cpp" />
+    <ClCompile Include="VRPrims.cpp" />
     <ClCompile Include="VideoFX.cpp" />
     <ClCompile Include="VKDefs.cpp" />
     <ClCompile Include="WeaponChooser.cpp" />
@@ -646,6 +650,7 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClInclude Include="FolderObjectives.h" />
     <ClInclude Include="FolderOptions.h" />
     <ClInclude Include="FolderPerformance.h" />
+    <ClInclude Include="FolderVR.h" />
     <ClInclude Include="FolderPlayer.h" />
     <ClInclude Include="FolderSave.h" />
     <ClInclude Include="FolderSingle.h" />
@@ -746,6 +751,9 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClInclude Include="TracerFX.h" />
     <ClInclude Include="VarTrack.h" />
     <ClInclude Include="VehicleMgr.h" />
+    <ClInclude Include="VRLog.h" />
+    <ClInclude Include="VRShared.h" />
+    <ClInclude Include="VRPrims.h" />
     <ClInclude Include="VideoFX.h" />
     <ClInclude Include="VKDefs.h" />
     <ClInclude Include="VolumeBrushFX.h" />
@@ -759,4 +767,7 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ItemGroup>
+    <ResourceCompile Include="VRVersion.rc" />
+  </ItemGroup>
 </Project>

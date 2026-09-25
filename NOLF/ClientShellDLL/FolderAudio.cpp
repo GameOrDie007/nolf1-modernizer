@@ -63,6 +63,11 @@ LTBOOL CFolderAudio::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// The labels ran under the sliders with the scaled sheets: measured (CBaseFolder::LabelColumn).
+	{
+		static const int kLabels[] = { IDS_SOUND_FXVOL, IDS_SOUND_QUALITY, IDS_SOUND_MUSICVOL };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	uint32 dwAdvancedOptions = g_pInterfaceMgr->GetAdvancedOptions();
 

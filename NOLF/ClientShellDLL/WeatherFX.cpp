@@ -18,6 +18,7 @@
 #include "iltphysics.h"
 #include "ClientWeaponUtils.h"
 #include "ClientButeMgr.h"
+#include "VRLog.h"
 #include "GameButes.h"
 #include "SurfaceFunctions.h"
 
@@ -414,6 +415,18 @@ void CWeatherFX::DoSplash(LSLineStruct* pLine)
     m_pClientDE->GetLineInfo(pLine->hLTLine, &line);
     LTVector vPos = m_vRainPos + ((line.m_Points[0].m_Pos + line.m_Points[1].m_Pos) / 2.0f);
 	vPos.y = m_fFloorY;
+	// WHERE THE SPLASHES GO, for the splashes seen hanging in the air over the
+	// M05S01 docks. The first 60, with the volume's floor.
+	{
+		static int s_nSplashSaid = 0;
+		if (s_nSplashSaid < 60)
+		{
+			++s_nSplashSaid;
+			VRLog::Msg("VRRainSplash: at (%.0f %.0f %.0f), volume at (%.0f %.0f %.0f) dims (%.0f %.0f %.0f) floor %.0f surface %d",
+				vPos.x, vPos.y, vPos.z, m_vPos.x, m_vPos.y, m_vPos.z, m_vDims.x, m_vDims.y, m_vDims.z,
+				m_fFloorY, (int)m_eSurfaceType);
+		}
+	}
 
 
 	// Get the camera's position...If the camera is too far away from

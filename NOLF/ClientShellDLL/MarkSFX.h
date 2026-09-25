@@ -47,6 +47,10 @@ class CMarkSFX : public CSpecialFX
 			m_nAmmoId = 0;
 			m_nSurfaceType = 0;
 			m_fStartTime = 0.0f;
+			m_hRideObj = LTNULL;
+			m_vRideOfs.Init();
+			m_vRideFwd.Init();
+			m_vRideUp.Init();
 		}
 
         virtual LTBOOL Init(SFXCREATESTRUCT* psfxCreateStruct);
@@ -56,6 +60,28 @@ class CMarkSFX : public CSpecialFX
         virtual void WantRemove(LTBOOL bRemove=LTTRUE);
 
 		virtual uint32 GetSFXID() { return SFX_MARK_ID; }
+
+		// THE SURFACE THIS MARK IS STUCK TO, when that surface can move.
+		//
+		// A mark is created at a world position and never moves again, so a
+		// bullet hole in a door stays in the air when the door opens - which
+		// is what it does in retail too, on a monitor, where nobody notices.
+		// In a headset you walk up to it.
+		//
+		// Only set when the thing hit is NOT the main world: static geometry
+		// needs none of this and would pay for it on every mark.
+		void            RideOn(HLOCALOBJ hObj);
+
+	private :
+
+		HLOCALOBJ       m_hRideObj;     // the brush this mark is stuck to
+		LTVector        m_vRideOfs;     // its position in that brush's frame
+		LTVector        m_vRideFwd;     // and its facing, likewise
+		LTVector        m_vRideUp;
+
+		void            UpdateRide();
+
+	public :
 
 	private :
 

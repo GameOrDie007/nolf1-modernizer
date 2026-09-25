@@ -17,10 +17,43 @@ extern CGameClientShell* g_pGameClientShell;
 #include <stdio.h>
 #include <time.h>
 
+extern VarTrack g_vtVRMenuBigSubs;
+
 namespace
 {
 	const int kMaxSave = 10;
 	int kColumnWidth = 350;
+	// Under VRMenuBigSubs the list is set in the large HD font, which is
+	// about four times the small sheet, so the layout-unit columns are widened
+	// with the screen ratio (and the name column trimmed) or the date lands
+	// on top of the name. Fourth headset test: the Load page overlapped.
+	static int VRColumn(int nLayout)
+	{
+		if (g_vtVRMenuBigSubs.GetFloat(0.0f) <= 0.0f || !g_pInterfaceResMgr) return nLayout;
+		return (int)(nLayout * 0.55f * g_pInterfaceResMgr->GetYRatio());
+	}
+	// MEASURED, NOT GUESSED. The 0.55 above was a fit, and the large font
+	// outgrew it: "The Assignment, Scene 2" ran under its date, and the level
+	// names read as cut off in the headset. The name column is now the widest name on the
+	// page as the font actually measures it, plus a gap - so every date
+	// starts in the same column and none lands on a name. The layout value
+	// stays as the floor.
+	static int s_nNameColumn = 0;
+	static void VRMeasureName(CLTGUIFont* pFont, const char* pszName)
+	{
+		if (!pFont || !pszName || g_vtVRMenuBigSubs.GetFloat(0.0f) <= 0.0f) return;
+		char szStr[256];
+		sprintf(szStr, "    %s", pszName);
+		HSTRING h = g_pLTClient->CreateString(szStr);
+		const int w = pFont->GetTextExtents(h).x + pFont->GetHeight();
+		g_pLTClient->FreeString(h);
+		if (w > s_nNameColumn) s_nNameColumn = w;
+	}
+	static int VRNameColumn(int nLayout)
+	{
+		const int nFloor = VRColumn(nLayout);
+		return (s_nNameColumn > nFloor) ? s_nNameColumn : nFloor;
+	}
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -115,6 +148,37 @@ void CFolderLoad::BuildSavedLevelList()
 	char strSaveGameSetting[256];
 	memset (strSaveGameSetting, 0, 256);
 
+	// First pass: how wide is the widest name in THIS font? See VRMeasureName.
+	s_nNameColumn = 0;
+	{
+		CLTGUIFont* pMeasure = GetSmallFont();
+		SaveGameData sMeasure;
+		if (CWinUtil::FileExist(QUICKSAVE_FILENAME))
+		{
+			CWinUtil::WinGetPrivateProfileString (GAME_NAME, "SaveGame00", "", strSaveGameSetting, 256, SAVEGAMEINI_FILENAME);
+			ParseSaveString(strSaveGameSetting,&sMeasure,LTFALSE);
+			VRMeasureName(pMeasure, sMeasure.szUserName);
+		}
+		if (CWinUtil::FileExist(RELOADLEVEL_FILENAME))
+		{
+			CWinUtil::WinGetPrivateProfileString (GAME_NAME, "Reload", "", strSaveGameSetting, 256, SAVEGAMEINI_FILENAME);
+			ParseSaveString(strSaveGameSetting,&sMeasure,LTFALSE);
+			VRMeasureName(pMeasure, sMeasure.szUserName);
+		}
+		for (int i = 0; i < kMaxSave; i++)
+		{
+			char strFilename[128];
+			sprintf (strFilename, "Save\\Slot%02d.sav", i+1);
+			if (!CWinUtil::FileExist(strFilename)) continue;
+			char szKey[32] = "";
+			sprintf (szKey, "SaveGame%02d", i+1);
+			CWinUtil::WinGetPrivateProfileString (GAME_NAME, szKey, "", strSaveGameSetting, 256, SAVEGAMEINI_FILENAME);
+			ParseSaveString(strSaveGameSetting,&sMeasure);
+			VRMeasureName(pMeasure, sMeasure.szUserName);
+		}
+		memset (strSaveGameSetting, 0, 256);
+	}
+
 	if (CWinUtil::FileExist(QUICKSAVE_FILENAME))
 	{
 		SaveGameData sQuickSave;
@@ -131,13 +195,13 @@ void CFolderLoad::BuildSavedLevelList()
 			CLTGUIColumnTextCtrl* pColCtrl = AddColumnText(FOLDER_CMD_CUSTOM, IDS_HELP_QUICKLOAD, LTFALSE, GetSmallFont());
 
 			// The world name column
-			pColCtrl->AddColumn(hLoad, kColumnWidth, LTF_JUSTIFY_LEFT);
+			pColCtrl->AddColumn(hLoad, VRNameColumn(kColumnWidth), LTF_JUSTIFY_LEFT);
 
 			if (strlen(sQuickSave.szTime) > 0)
 			{
 				// The column that contains the date/time
 				HSTRING hTime=g_pLTClient->CreateString(sQuickSave.szTime);
-				pColCtrl->AddColumn(hTime, 230, LTF_JUSTIFY_LEFT);
+				pColCtrl->AddColumn(hTime, VRColumn(230), LTF_JUSTIFY_LEFT);
 				g_pLTClient->FreeString(hTime);
 			}
 			g_pLTClient->FreeString(hLoad);
@@ -161,13 +225,13 @@ void CFolderLoad::BuildSavedLevelList()
 			CLTGUIColumnTextCtrl* pColCtrl = AddColumnText(FOLDER_CMD_CUSTOM+1, IDS_HELP_RELOAD, LTFALSE, GetSmallFont());
 
 			// The world name column
-			pColCtrl->AddColumn(hLoad, kColumnWidth, LTF_JUSTIFY_LEFT);
+			pColCtrl->AddColumn(hLoad, VRNameColumn(kColumnWidth), LTF_JUSTIFY_LEFT);
 
 			if (strlen(sAutoSave.szTime) > 0)
 			{
 				// The column that contains the date/time
 				HSTRING hTime=g_pLTClient->CreateString(sAutoSave.szTime);
-				pColCtrl->AddColumn(hTime, 230, LTF_JUSTIFY_LEFT);
+				pColCtrl->AddColumn(hTime, VRColumn(230), LTF_JUSTIFY_LEFT);
 				g_pLTClient->FreeString(hTime);
 			}
 			g_pLTClient->FreeString(hLoad);
@@ -198,13 +262,13 @@ void CFolderLoad::BuildSavedLevelList()
 				CLTGUIColumnTextCtrl* pCtrl = AddColumnText(FOLDER_CMD_CUSTOM+2+i, IDS_HELP_LOADGAME, LTFALSE, GetSmallFont());
 
 				// The world name column
-				pCtrl->AddColumn(hLoad, kColumnWidth, LTF_JUSTIFY_LEFT);
+				pCtrl->AddColumn(hLoad, VRNameColumn(kColumnWidth), LTF_JUSTIFY_LEFT);
 
 				if (strlen(sSave.szTime) > 0)
 				{
 					// The column that contains the date/time
 					HSTRING hTime=g_pLTClient->CreateString(sSave.szTime);
-					pCtrl->AddColumn(hTime, 230, LTF_JUSTIFY_LEFT);
+					pCtrl->AddColumn(hTime, VRColumn(230), LTF_JUSTIFY_LEFT);
 					g_pLTClient->FreeString(hTime);
 				}
 				g_pLTClient->FreeString(hLoad);

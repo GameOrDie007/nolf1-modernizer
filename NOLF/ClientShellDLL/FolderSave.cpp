@@ -17,6 +17,8 @@ extern CGameClientShell* g_pGameClientShell;
 #include <stdio.h>
 #include <time.h>
 
+extern VarTrack g_vtVRMenuBigSubs;
+
 namespace
 {
 	const int kMaxSave = 10;
@@ -36,6 +38,37 @@ namespace
 	HSTRING g_hOldTime = LTNULL;
 
 	int kColumnWidth = 330;
+	// Under VRMenuBigSubs the list is set in the large HD font, which is
+	// about four times the small sheet, so the layout-unit columns are widened
+	// with the screen ratio (and the name column trimmed) or the date lands
+	// on top of the name. Fourth headset test: the Load page overlapped.
+	static int VRColumn(int nLayout)
+	{
+		if (g_vtVRMenuBigSubs.GetFloat(0.0f) <= 0.0f || !g_pInterfaceResMgr) return nLayout;
+		return (int)(nLayout * 0.55f * g_pInterfaceResMgr->GetYRatio());
+	}
+	// MEASURED, NOT GUESSED. The 0.55 above was a fit, and the large font
+	// outgrew it: "The Assignment, Scene 2" ran under its date, and the level
+	// names read as cut off in the headset. The name column is now the widest name on the
+	// page as the font actually measures it, plus a gap - so every date
+	// starts in the same column and none lands on a name. The layout value
+	// stays as the floor.
+	static int s_nNameColumn = 0;
+	static void VRMeasureName(CLTGUIFont* pFont, const char* pszName)
+	{
+		if (!pFont || !pszName || g_vtVRMenuBigSubs.GetFloat(0.0f) <= 0.0f) return;
+		char szStr[256];
+		sprintf(szStr, "    %s", pszName);
+		HSTRING h = g_pLTClient->CreateString(szStr);
+		const int w = pFont->GetTextExtents(h).x + pFont->GetHeight();
+		g_pLTClient->FreeString(h);
+		if (w > s_nNameColumn) s_nNameColumn = w;
+	}
+	static int VRNameColumn(int nLayout)
+	{
+		const int nFloor = VRColumn(nLayout);
+		return (s_nNameColumn > nFloor) ? s_nNameColumn : nFloor;
+	}
 	int kGap = 20;
 
 }
@@ -236,7 +269,7 @@ void CFolderSave::BuildSavedLevelList()
 				pCtrl->SetParam1( m_controlArray.GetSize() - 1);
 				// The world name column
 
-				pCtrl->AddColumn(hWorld, kColumnWidth, LTF_JUSTIFY_LEFT);
+				pCtrl->AddColumn(hWorld, VRColumn(kColumnWidth), LTF_JUSTIFY_LEFT);
 
 				// This is a spacer
 				pCtrl->AddColumn(hEmpty, kGap, LTF_JUSTIFY_LEFT);
@@ -244,7 +277,7 @@ void CFolderSave::BuildSavedLevelList()
 				if (hTime)
 				{
 					// The column that contains the date/time
-					pCtrl->AddColumn(hTime, 230, LTF_JUSTIFY_LEFT);
+					pCtrl->AddColumn(hTime, VRColumn(230), LTF_JUSTIFY_LEFT);
 					g_pLTClient->FreeString(hTime);
 				}
 				g_pLTClient->FreeString(hWorld);
@@ -265,13 +298,13 @@ void CFolderSave::BuildSavedLevelList()
 		pCtrl->SetParam1( m_controlArray.GetSize() - 1);
 		// The world name column
 
-		pCtrl->AddColumn(IDS_EMPTY, kColumnWidth, LTF_JUSTIFY_LEFT);
+		pCtrl->AddColumn(IDS_EMPTY, VRColumn(kColumnWidth), LTF_JUSTIFY_LEFT);
 
 		// This is a spacer
 		pCtrl->AddColumn(hEmpty, kGap, LTF_JUSTIFY_LEFT);
 
 		// The column that contains the date/time
-		pCtrl->AddColumn(hEmpty, 230, LTF_JUSTIFY_LEFT);
+		pCtrl->AddColumn(hEmpty, VRColumn(230), LTF_JUSTIFY_LEFT);
 	}
 
     g_pLTClient->FreeString(hEmpty);

@@ -3,9 +3,12 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include "VarTrack.h"
+#include "VRShared.h"
 #include "ClientRes.h"
 #include "gameclientshell.h"
 #include "InterfaceResMgr.h"
+#include "VRLog.h"
 #include "ClientButeMgr.h"
 #include "SDL.h"
 #include "ConsoleMgr.h"
@@ -14,6 +17,7 @@ CInterfaceResMgr*   g_pInterfaceResMgr = LTNULL;
 extern SDL_Window* g_SDLWindow;
 extern ConsoleMgr* g_pConsoleMgr;
 extern VarTrack g_vtUIScale;
+extern VarTrack g_vtVRMenuHDFont;
 
 namespace
 {
@@ -35,7 +39,11 @@ CInterfaceResMgr::CInterfaceResMgr()
     m_pTitleFont = LTNULL;
     m_pLargeFont = LTNULL;
 	m_pLargeHDFont = LTNULL;
+	m_bScaledFonts = LTFALSE;
+	m_nFontScale   = 1;
     m_pMediumFont = LTNULL;
+	m_pDlgFont[0] = m_pDlgFont[1] = LTNULL;
+	m_nDlgFontScale = 0;
     m_pSmallFont = LTNULL;
     m_pHelpFont = LTNULL;
 
@@ -162,6 +170,16 @@ void CInterfaceResMgr::Term()
 		debug_delete(m_pMediumFont);
         m_pMediumFont=LTNULL;
 	}
+	for (int d = 0; d < 2; ++d)
+	{
+		if (m_pDlgFont[d])
+		{
+			m_pDlgFont[d]->Term();
+			debug_delete(m_pDlgFont[d]);
+			m_pDlgFont[d] = LTNULL;
+		}
+	}
+	m_nDlgFontScale = 0;
 	if ( m_pLargeFont )
 	{
 		m_pLargeFont->Term();
@@ -333,9 +351,20 @@ int CInterfaceResMgr::Get4x3Offset()
 	return (GetScreenWidth() - (GetScreenHeight() * Get4x3Ratio())) / 2;
 }
 
+// THE HUD IN A HEADSET. The HUD's positions scale with the screen and its
+// art scales by UIScale, which the tester keeps at 0.5; the 2D layer then fits the
+// whole 2560-wide layout into one eye at about 0.42. The tester's 12 September
+// screenshots and a desk capture showed the ammo counter about 12 px tall in
+// a 1384-tall eye - a degree of arc - and pushed to the eye's far edge. So in
+// VR the HUD's art is scaled up by VRHudScale on top of the player's setting (default
+// 2), and PlayerStats pulls each element in from the corners by VRHudInset.
+VarTrack g_vtVRHudScale;
 LTFLOAT CInterfaceResMgr::GetUIScale()
 {
-	return m_fYRatio * g_vtUIScale.GetFloat();
+	if (!g_vtVRHudScale.IsInitted())
+		g_vtVRHudScale.Init(g_pLTClient, "VRHudScale", LTNULL, 1.5f);	// 2, then 3 on 24 Sep: at 3, pulled in by VRHudInsetX, it read as twice too big
+	const float fVR = VRShared::IsLive() ? g_vtVRHudScale.GetFloat() : 1.0f;
+	return m_fYRatio * g_vtUIScale.GetFloat() * (fVR > 0.0f ? fVR : 1.0f);
 }
 
 void CInterfaceResMgr::DrawMessage(CLTGUIFont* pFont, int nMessageId)
@@ -435,12 +464,72 @@ LTBOOL CInterfaceResMgr::InitFonts()
 	m_pLargeHDFont = debug_new(CLTGUIFont);
 
 
+	// THE MENU TEXT SCALES WITH THE SCREEN, when asked to.
+	//
+	// The menu's POSITIONS scale - every folder lays out through GetYRatio(),
+	// screen height over 480 - but the English fonts are BITMAPS blitted 1:1,
+	// so the glyphs do not. At 2160 tall the layout is 4.5x the authored size
+	// and the largest glyph on offer is 52 px (the Modernizer's HD large
+	// font), so a 4K menu is art that fills the frame and text that does not.
+	// In a headset it is the same defect in degrees: the font is too small.
+	//
+	// The engine has always had a second way to make a font: a SYSTEM font
+	// rendered at a requested size (LITHFONTCREATESTRUCT::szFontName/nHeight),
+	// which is how every non-English NOLF draws its menus. Those sizes are
+	// resolution-independent by construction, and control rects come from
+	// the font's own metrics (CLTGUITextItemCtrl::CalculateSize), so hit
+	// testing follows the glyphs with no further work.
+	//
+	// VRMenuScaleText 1 sends English down that path with the localised
+	// sizes multiplied by the layout ratio. It is a switch and not the
+	// default until it has been seen in a headset: it changes the typeface
+	// from the authored bitmap to Arial, and the bitmap menu is something
+	// headset testing has validated.
+	const bool bScaleText = (GetConsoleInt("VRMenuScaleText", 0) != 0);
+
+	// WHAT THE RETAIL RENDERER SAYS ABOUT ITS REFLECTION MAPS. d3d.ren
+	// registers EnvMapEnable, EnvMapWorld, EnvMapPolyGrids, EnvPanSpeed and
+	// EnvScale as console variables; ours does not. Under -Renderer d3d.ren
+	// this line is the authored numbers, and the guesses stop.
+	{
+		static const char* const kEnv[] =
+			{ "EnvMapEnable", "EnvMapWorld", "EnvMapPolyGrids", "EnvPanSpeed", "EnvScale" };
+		char szLine[256] = "";
+		for (int i = 0; i < 5; ++i)
+		{
+			HCONSOLEVAR hV = g_pLTClient->GetConsoleVar((char*)kEnv[i]);
+			char szOne[64];
+			if (hV) sprintf(szOne, "%s=%.4f ", kEnv[i], g_pLTClient->GetVarValueFloat(hV));
+			else    sprintf(szOne, "%s=(none) ", kEnv[i]);
+			strcat(szLine, szOne);
+		}
+		VRLog::Msg("RENDERER ENV VARS: %s", szLine);
+	}
+
+	// WHICH SHEET. tools/hdfont.py makes every menu font at 2x, 3x and 4x -
+	// the strip upscaled with a real filter, the separator columns forced back
+	// to black so the width calculation sees exactly what it saw in the
+	// original (verified: 94 glyph runs before and after, all fifteen files).
+	// The layout scales by GetYRatio(), screen height over 480, so the sheet
+	// nearest that ratio keeps the authored proportion: at 1384 tall (a
+	// headset eye) that is 3x, at 2160 it is 4x. The Modernizer's one HD sheet
+	// was 1.86x, which is why the menu read as small in both.
+	//
+	// VRMenuFontScale: -1 (default) picks by the ratio; 0 forces the
+	// originals; 2, 3 or 4 force that sheet. Anything the rez does not carry
+	// falls back to the original, so a wrong number cannot lose the menu.
+	m_bScaledFonts = LTFALSE;
+	m_nFontScale   = GetConsoleInt("VRMenuFontScale", -1);
+	if (m_nFontScale < 0) m_nFontScale = (int)(m_fYRatio + 0.5f);
+	if (m_nFontScale < 1) m_nFontScale = 1;
+	if (m_nFontScale > 4) m_nFontScale = 4;
+
 	// Initialize the bitmap fonts if we are in english
-	if (IsEnglish())
+	if (IsEnglish() && !bScaleText)
 	{
         // ************* help font
 		g_pLayoutMgr->GetHelpFont(g_szFontName,sizeof(g_szFontName));
-		if (!SetupFont(m_pHelpFont))
+		if (!SetupFontScaled(m_pHelpFont))
 		{
 			debug_delete(m_pHelpFont);
             m_pHelpFont=LTNULL;
@@ -448,7 +537,7 @@ LTBOOL CInterfaceResMgr::InitFonts()
 		}
         // *********** small font
 		g_pLayoutMgr->GetSmallFontBase(g_szFontName,sizeof(g_szFontName));
-        if (!SetupFont(m_pSmallFont))
+        if (!SetupFontScaled(m_pSmallFont))
 		{
 			debug_delete(m_pSmallFont);
             m_pSmallFont=LTNULL;
@@ -457,7 +546,7 @@ LTBOOL CInterfaceResMgr::InitFonts()
 
         // *********** medium font
 		g_pLayoutMgr->GetMediumFontBase(g_szFontName,sizeof(g_szFontName));
-        if (!SetupFont(m_pMediumFont))
+        if (!SetupFontScaled(m_pMediumFont))
 		{
 			debug_delete(m_pMediumFont);
             m_pMediumFont=LTNULL;
@@ -466,7 +555,7 @@ LTBOOL CInterfaceResMgr::InitFonts()
 
         // *********** Large font
 		g_pLayoutMgr->GetLargeFontBase(g_szFontName,sizeof(g_szFontName));
-        if (!SetupFont(m_pLargeFont))
+        if (!SetupFontScaled(m_pLargeFont))
 		{
 			debug_delete(m_pLargeFont);
             m_pLargeFont=LTNULL;
@@ -475,7 +564,15 @@ LTBOOL CInterfaceResMgr::InitFonts()
 
 		//g_pLayoutMgr->GetLargeFontBase(g_szFontName,sizeof(g_szFontName));
 		LTStrCpy(g_szFontName, "interface\\fonts\\font_large_0_hd.pcx", sizeof(g_szFontName));
-        if (!SetupFont(m_pLargeHDFont))
+		// With a scaled large sheet loaded the 1.86x HD one is both redundant
+		// and SMALLER, and GetLargeFont() would still prefer it. Leave it
+		// null so GetLargeFont falls through to the scaled font.
+		if (m_bScaledFonts)
+		{
+			debug_delete(m_pLargeHDFont);
+			m_pLargeHDFont = LTNULL;
+		}
+		else if (!SetupFont(m_pLargeHDFont))
 		{
 			debug_delete(m_pLargeHDFont);
             m_pLargeHDFont=LTNULL;
@@ -484,9 +581,9 @@ LTBOOL CInterfaceResMgr::InitFonts()
 
         // ************* Title font
 		g_pLayoutMgr->GetTitleFont(g_szFontName,sizeof(g_szFontName));
-		if (!SetupFont(m_pTitleFont))
+		if (!SetupFontScaled(m_pTitleFont))
 		{
-			if (!SetupFont(m_pTitleFont,LTFALSE))
+			if (!SetupFontScaled(m_pTitleFont,LTFALSE))
 			{
 				debug_delete(m_pTitleFont);
 				m_pTitleFont=LTNULL;
@@ -535,25 +632,39 @@ LTBOOL CInterfaceResMgr::InitFonts()
 	}
 	else
 	{
+		// Localised builds: the sizes as authored. Scaled English: the same
+		// sizes times the layout ratio, using HEIGHT for both axes so a
+		// widescreen mode does not stretch the glyphs (at 3840x2160 the X
+		// ratio is 6.0 and the Y ratio 4.5).
+		const float fScale = bScaleText ? m_fYRatio : 1.0f;
+		if (bScaleText)
+			VRLog::Msg("VRMenuScaleText: engine fonts at %.2fx (screen %ux%u)",
+								fScale, m_dwScreenWidth, m_dwScreenHeight);
+
         // TODO: put these into string table for localization
 		// Initialize the engine fonts for non-english resource files
-		if (!InitEngineFont(m_pSmallFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE))
+		if (!InitEngineFontScaled(m_pSmallFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pHelpFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE))
+		if (!InitEngineFontScaled(m_pHelpFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pMediumFont, IDS_MEDIUM_FONT_NAME, IDS_MEDIUM_FONT_WIDTH, IDS_MEDIUM_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pMediumFont, IDS_MEDIUM_FONT_NAME, IDS_MEDIUM_FONT_WIDTH, IDS_MEDIUM_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pLargeFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pLargeFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pTitleFont, IDS_TITLE_FONT_NAME, IDS_TITLE_FONT_WIDTH, IDS_TITLE_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pTitleFont, IDS_TITLE_FONT_NAME, IDS_TITLE_FONT_WIDTH, IDS_TITLE_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pMsgForeFont, IDS_MEDIUM_FONT_NAME, IDS_MEDIUM_FONT_WIDTH, IDS_MEDIUM_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pMsgForeFont, IDS_MEDIUM_FONT_NAME, IDS_MEDIUM_FONT_WIDTH, IDS_MEDIUM_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pHUDForeFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pHUDForeFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pAirFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE))
+		if (!InitEngineFontScaled(m_pAirFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
-		if (!InitEngineFont(m_pChooserFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE))
+		if (!InitEngineFontScaled(m_pChooserFont, IDS_SMALL_FONT_NAME, IDS_SMALL_FONT_WIDTH, IDS_SMALL_FONT_HEIGHT, LTFALSE, fScale))
+            return LTFALSE;
+		// The HD large font only ever existed on the bitmap path, and
+		// GetLargeFont() hands it out under VRMenuHDFont. It has to be a
+		// valid font here too, and "large at scale" is what it means now.
+		if (!InitEngineFontScaled(m_pLargeHDFont, IDS_LARGE_FONT_NAME, IDS_LARGE_FONT_WIDTH, IDS_LARGE_FONT_HEIGHT, LTTRUE, fScale))
             return LTFALSE;
 
 	}
@@ -575,6 +686,26 @@ LTBOOL CInterfaceResMgr::InitFonts()
 }
 
 // *******************************************************************
+
+// The resource sizes times fScale, never below one pixel. Everything else is
+// InitEngineFont's. See the note in InitFonts for why this exists.
+LTBOOL CInterfaceResMgr::InitEngineFontScaled(CLTGUIFont *pFont, int nNameID, int nWidthID, int nHeightID, LTBOOL bBold, float fScale)
+{
+	if (!pFont) return LTFALSE;
+    HSTRING hName   = g_pLTClient->FormatString(nNameID);
+    HSTRING hWidth  = g_pLTClient->FormatString(nWidthID);
+    HSTRING hHeight = g_pLTClient->FormatString(nHeightID);
+	char szFontName[256] = "";
+    strncpy(szFontName, g_pLTClient->GetStringData(hName), sizeof(szFontName) - 1);
+	int nW = (int)(atoi(g_pLTClient->GetStringData(hWidth))  * fScale + 0.5f);
+	int nH = (int)(atoi(g_pLTClient->GetStringData(hHeight)) * fScale + 0.5f);
+	if (nW < 1) nW = 1;
+	if (nH < 1) nH = 1;
+    g_pLTClient->FreeString(hName);
+    g_pLTClient->FreeString(hWidth);
+    g_pLTClient->FreeString(hHeight);
+	return InitEngineFont(pFont, szFontName, nW, nH, bBold);
+}
 
 // Initialize an engine font from string IDs that represent the name, width, and height
 LTBOOL CInterfaceResMgr::InitEngineFont(CLTGUIFont *pFont, int nNameID, int nWidthID, int nHeightID, LTBOOL bBold)
@@ -865,6 +996,35 @@ HSURFACE CInterfaceResMgr::CreateSurfaceFromString(CLTGUIFont *pFont, char *lpsz
 
 
 
+// Try "<name>_<N>x.pcx" first, then the name as given. Sets m_bScaledFonts
+// the first time a scaled sheet loads. See the note in InitFonts.
+LTBOOL CInterfaceResMgr::SetupFontScaled(CLTGUIFont *pFont, LTBOOL bBlend, uint32 dwFlags)
+{
+	if (m_nFontScale > 1)
+	{
+		char szOrig[256];
+		LTStrCpy(szOrig, g_szFontName, sizeof(szOrig));
+		char* pDot = strrchr(g_szFontName, '.');
+		if (pDot && (size_t)(pDot - g_szFontName) + 4 < sizeof(g_szFontName) - 8)
+		{
+			char szTail[16];
+			LTStrCpy(szTail, pDot, sizeof(szTail));				// ".pcx"
+			sprintf(pDot, "_%dx%s", m_nFontScale, szTail);
+			if (SetupFont(pFont, bBlend, dwFlags))
+			{
+				if (!m_bScaledFonts)
+					VRLog::Msg("VRMenuFontScale: %dx sheets in use (screen %ux%u, ratio %.2f)",
+										m_nFontScale, m_dwScreenWidth, m_dwScreenHeight, m_fYRatio);
+				m_bScaledFonts = LTTRUE;
+				return LTTRUE;
+			}
+			VRLog::Msg("VRMenuFontScale: no %s - using the original", g_szFontName);
+			LTStrCpy(g_szFontName, szOrig, sizeof(g_szFontName));
+		}
+	}
+	return SetupFont(pFont, bBlend, dwFlags);
+}
+
 LTBOOL CInterfaceResMgr::SetupFont(CLTGUIFont *pFont, LTBOOL bBlend, uint32 dwFlags)
 {
 
@@ -897,16 +1057,105 @@ LTBOOL CInterfaceResMgr::SetupFont(CLTGUIFont *pFont, LTBOOL bBlend, uint32 dwFl
     return LTTRUE;
 }
 
+// THE MESSAGE FONT IS THE LARGE HD SHEET IN VR. Subtitles, the mission
+// captions ("time and place" in the intro), the dialogue window and pickup
+// messages all draw with this, at its authored 640x480 size, unscaled - a few
+// pixels tall in a 2076-line eye. In the headset the boxes were there but
+// far too small to read. Under VRMenuBigSubs they take the sheet the menus
+// use. VRMenuBigSubs 0 restores the original.
+CLTGUIFont* CInterfaceResMgr::GetMsgForeFont()
+{
+	extern VarTrack g_vtVRMenuBigSubs;
+	// GetFloat(1.0f): the captions and subtitles are INITIALISED before the
+	// VR cvars exist, and an uninitialised VarTrack answers with the default
+	// it is handed - 0 sized their surfaces for the small font.
+	if (g_vtVRMenuBigSubs.GetFloat(1.0f) > 0.0f)
+	{
+		CLTGUIFont* pBig = GetLargeFont();
+		if (pBig) return pBig;
+	}
+	return m_pMsgForeFont;
+}
+
+// THE DIALOGUE BOXES A SHEET SMALLER. The question and choice boxes were right
+// in shape but about a quarter too large in the headset.
+// Scaling their layout alone would re-wrap the text, so the boxes
+// take their own copies of the medium and large faces at VRDialogueSize of the
+// menu's sheet (default 0.75: 4x -> 3x at a 2076-line screen) and the layout
+// scales by the same ratio (GetDialogueSizeRatio). Menus keep their fonts.
+// Outside VR, without scaled sheets, or at 1, these are the ordinary fonts.
+static int VRDialogueFontScale(int nMenuScale)
+{
+	const float f = GetConsoleFloat("VRDialogueSize", 0.75f);
+	// "In VR" is the launch's VRStereo as well as a live host: the dialogue
+	// window's size is fixed once, at interface start, possibly before the
+	// host's first pose arrives, and must agree with the font chosen later.
+	const bool bVR = VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0;
+	if (!bVR || f <= 0.0f || f >= 1.0f || nMenuScale <= 1) return nMenuScale;
+	int n = (int)((float)nMenuScale * f + 0.5f);
+	if (n < 2) n = 2;
+	return (n < nMenuScale) ? n : nMenuScale;
+}
+float CInterfaceResMgr::GetDialogueSizeRatio()
+{
+	if (!m_bScaledFonts || m_nFontScale <= 1) return 1.0f;
+	GetDialogueFont(LTFALSE);	// settles m_nDlgFontScale (it can fall back to the menu's)
+	const int n = m_nDlgFontScale ? m_nDlgFontScale : m_nFontScale;
+	return (float)n / (float)m_nFontScale;
+}
+CLTGUIFont* CInterfaceResMgr::GetDialogueFont(LTBOOL bLarge)
+{
+	CLTGUIFont* pMenu = bLarge ? GetMsgForeFont() : m_pMediumFont;
+	if (!m_bScaledFonts) return pMenu;
+	const int nWant = VRDialogueFontScale(m_nFontScale);
+	if (nWant == m_nFontScale) { m_nDlgFontScale = m_nFontScale; return pMenu; }
+	const int d = bLarge ? 1 : 0;
+	if (!m_pDlgFont[d])
+	{
+		m_pDlgFont[d] = debug_new(CLTGUIFont);
+		const int nSaveScale = m_nFontScale;
+		const LTBOOL bSaveScaled = m_bScaledFonts;
+		char szSave[256];
+		LTStrCpy(szSave, g_szFontName, sizeof(szSave));
+		if (bLarge) g_pLayoutMgr->GetLargeFontBase(g_szFontName, sizeof(g_szFontName));
+		else        g_pLayoutMgr->GetMediumFontBase(g_szFontName, sizeof(g_szFontName));
+		m_nFontScale = nWant;
+		m_bScaledFonts = LTFALSE;			// so the helper says which sheet loaded
+		const LTBOOL bOk = SetupFontScaled(m_pDlgFont[d]);
+		const LTBOOL bGotScaled = m_bScaledFonts;
+		m_nFontScale = nSaveScale;
+		m_bScaledFonts = bSaveScaled;
+		LTStrCpy(g_szFontName, szSave, sizeof(g_szFontName));
+		if (!bOk || !bGotScaled)
+		{
+			// No sheet at that size: the box keeps the menu's font, and the
+			// layout ratio falls back to 1 with it.
+			if (m_pDlgFont[d]) { m_pDlgFont[d]->Term(); debug_delete(m_pDlgFont[d]); m_pDlgFont[d] = LTNULL; }
+			m_nDlgFontScale = m_nFontScale;
+			VRLog::Msg("VRDialogueSize: no %dx sheet for the %s dialogue font - keeping the menu's", nWant, bLarge ? "large" : "medium");
+			return pMenu;
+		}
+		m_nDlgFontScale = nWant;
+		VRLog::Msg("VRDialogueSize: %s dialogue font at %dx (menus %dx)", bLarge ? "large" : "medium", nWant, m_nFontScale);
+	}
+	return m_pDlgFont[d] ? m_pDlgFont[d] : pMenu;
+}
+
 CLTGUIFont* CInterfaceResMgr::GetLargeFont()
 {
-	// Until I can get some time to fix up other fonts, we'll just use the default one.
-#if 1
-	return m_pLargeFont;
-#else
-	if(m_pLargeHDFont != LTNULL && GetScreenHeight() > 900) {
+	// +VRMenuHDFont 0 puts the original 1096x28 sheet back.
+	//
+	// The upstream "#if 1" that disabled this is not a mistake and its comment
+	// says so - only the LARGE font has HD art, so turning it on makes the menu
+	// mix two glyph sizes. On a monitor that is a cosmetic regression and not
+	// worth it. In a headset the large font is the one carrying every menu item
+	// a player has to read, it measures 0.79 degrees without this, and mixed
+	// sizes are a price worth paying. See the note where the cvar is declared.
+	if (g_vtVRMenuHDFont.GetFloat(1.0f) > 0.0f
+		&& m_pLargeHDFont != LTNULL && GetScreenHeight() > 900)
+	{
 		return m_pLargeHDFont;
 	}
 
 	return m_pLargeFont;
-#endif
 }

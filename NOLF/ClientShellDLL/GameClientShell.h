@@ -141,6 +141,9 @@ class CGameClientShell : public IClientShell
 
 		HLOCALOBJ		GetCamera()				const	{ return m_hCamera; }
 		HLOCALOBJ		GetInterfaceCamera()	const	{ return m_hInterfaceCamera; }
+		// Square the interface camera up before a card folder places its 3D
+		// pieces (CBaseFolder::CreateInterfaceSFX). See the definition.
+		void			VRSquareInterfaceCameraFor(int nFolderId);
         LTBOOL			IsUsingExternalCamera()	const	{ return m_bUsingExternalCamera; }
         LTBOOL          CanSaveGame()			const   { return (m_bInWorld && !m_bUsingExternalCamera); }
         LTBOOL          IsInWorld()				const   { return m_bInWorld; }
@@ -160,6 +163,7 @@ class CGameClientShell : public IClientShell
 		void		AllowPlayerMovement(LTBOOL bAllowPlayerMovement);
 
         LTBOOL      IsPlayerMovementAllowed()       { return m_bAllowPlayerMovement;}
+        int         VRScopeZoomLevel() const;   // the game's zoom level, for the scope pass
         LTBOOL      IsZoomed()          const       { return (m_nZoomView > 0 || m_bZooming); }
         LTBOOL      IsUnderwater()      const       { return IsLiquid(m_eCurContainerCode); }
         LTBOOL      UsingNightVision()  const       { return m_bNightVision; }
@@ -201,9 +205,28 @@ class CGameClientShell : public IClientShell
         LTBOOL      IsMultiplayerGame();
 		LTBOOL		IsHosting();
         LTBOOL      IsPlayerInWorld();
+		// The loading screen is drawn by its own thread while this one loads the
+		// level, so the per-tick publish never runs for it. CLoadingScreen::Show
+		// calls this once, on the main thread, before that thread starts.
+		void		VRPublishLoadingScreen();
 
 		PlayerState	GetPlayerState()	const { return m_ePlayerState; }
         LTBOOL      IsPlayerDead()      const { return (m_ePlayerState == PS_DEAD || m_ePlayerState == PS_DYING); }
+
+        // THE 2D CROSSHAIR AND THE WORLD MARKER ARE THE SAME ANSWER TWICE.
+        //
+        // The game's own crosshair is blitted at the centre of the screen,
+        // which is the VIEW axis; once the controller aims the weapon that is
+        // not where the shot goes. This says the world marker is up and the
+        // flat one should stand down. It does NOT touch IsCrosshairOn():
+        // that is a game STATE (the player's option, the 3rd-person logic,
+        // and one of the marker's own enable conditions), and clearing it
+        // would switch the marker off along with the cross.
+        LTBOOL      VRHidesGameCrosshair() const;
+
+        // Blood, bullet holes and shell casings stay instead of fading. One
+        // decision, so one switch: VRPersistentFX, default on.
+        LTBOOL      VRPersistentFX() const;
 
         uint32      GetPlayerFlags()    const { return m_dwPlayerFlags; }
 
@@ -294,6 +317,36 @@ class CGameClientShell : public IClientShell
 		void		UpdatePlaying();
 		void		OnCommandOn(int command);
 		void		OnCommandOff(int command);
+
+		// Turns the headset's controllers into the commands and keys the game
+		// already understands. A member because it needs the game state, and
+		// m_InterfaceMgr has no public accessor.
+		void		VRUpdateControllerInput();
+		// Typing into the chat line while the game is not the foreground
+		// window - which is its normal state with a headset on. See the note
+		// at the definition.
+		void		VRTypeWhenUnfocused();
+		// Defined only when VR_DEBUG_TOOLS is 1 (GameClientShell.cpp), and
+		// called only from there - the macro lives in the .cpp, after this
+		// header is included, so guarding the declaration with it would
+		// compile the declaration out and the definition in.
+		void			VRDebugFireDrive();
+		// Test only: select a weapon on world entry, retried until the server
+		// has actually handed it over. See VRDebugWeapon.
+		void		VRDebugSelectWeapon();
+		// True when the player's own stats say the player carries a firearm - the only
+		// way to tell whether the arsenal cheat actually landed.
+		bool		VRHasAnyGun();
+
+		// Hand the renderer the engine's model list once a frame. A member for
+		// the same reason as above: it needs the game state and the camera.
+		void		VRUpdateVehicleBody();
+		void		VRPublishModels();
+		// True when the interface scene is the whole picture and no level may
+		// show behind it: a full-card folder, any folder once the player has
+		// left the world (a failed mission), or the loading screen while it is
+		// being published. See VRIsCardFolder.
+		bool		VRCardScene();
 		void		OnKeyDown(int key, int rep);
 		void		OnKeyUp(int key);
         void        SpecialEffectNotify(HLOCALOBJ hObj, HMESSAGEREAD hMessage);
@@ -307,6 +360,197 @@ class CGameClientShell : public IClientShell
 		void		UpdateServerPlayerModel();
         void        RenderCamera(LTBOOL bDrawInterface = LTTRUE);
 
+        // VR: draws the world once or twice, optionally offset per eye into
+        // side-by-side viewports. Separate function so it can use
+        // __try/__finally - camera state must be restored even on a structured
+        // exception (a project rule), and SEH will not run C++ destructors.
+        void        RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide);
+
+        // Points one eye's camera at its own optical centre. The Quest's
+        // lenses are canted, so each eye's frustum centre is offset from its
+        // forward axis; the host declares the matching rotation.
+        void        ApplyEyeOpticalCentre(const LTRotation& rBase, int nEye);
+
+        // Stamps the frame with which host pose it was rendered from, so the
+        // host can stop guessing how stale each captured image is.
+        enum { kMarkerBlock = 8 };
+    public:
+        // Public: the folder path (InterfaceMgr) paints it for the paused world.
+        void        DrawFrameMarker(uint32 nHostFrame);
+    protected:
+
+        // A crosshair per eye. The game's own is drawn once across the window
+        // and lands on the stereo seam, so neither eye gets a usable one.
+        void        DrawVRCrosshair(int nHalfWidth, int nHeight);
+
+        // Measures the horizontal field the renderer actually produces, by
+        // yawing a known angle and finding how far the image moved. Replaces
+        // guessing at VRFovXTest.
+        void        CalibrateFovX();
+
+        // The same measurement on the VERTICAL axis: pitch a known angle and
+        // correlate along columns. Never measured before 31 August, and the
+        // prime suspect for the warping - if the renderer scales the two axes
+        // differently the picture handed to the runtime is anisotropic, which
+        // bends the world as the head turns and is invisible to VRFovXTest.
+        void        CalibrateFovY();
+
+        // Both of the above. bVertical picks the axis; everything else -
+        // the band, the four rotations, the linearity check - is shared, so
+        // the two axes cannot drift apart as instruments.
+        void        CalibrateAxis(LTBOOL bVertical);
+
+        // CalibrateFovX behind a structured-exception guard. It had never once
+        // been called before 23 August, so it is treated as untested code.
+        void        CalibrateFovXGuarded();
+
+        // CalibrateFovY behind the same guard.
+        void        CalibrateFovYGuarded();
+
+        // Writes the eye viewport to a BMP beside the run log, so what the
+        // calibration reads can be LOOKED AT instead of inferred from a
+        // standard deviation.
+        //
+        // Every failure of this measurement since 23 August has been reported
+        // as one number - "reference band: sd 0.0" - which cannot separate a
+        // blank wall from a failed surface read from a correlation looking at
+        // the wrong rows. Those need opposite fixes and have each been acted
+        // on wrongly at least once. One image settles all three at a glance.
+        // Subsampled, because this reads a pixel at a time.
+        void        DumpEyeImage(const char* pszTag);
+
+        // Dumps whatever is ALREADY in the stash surface, with no render and
+        // no copy of its own.
+        //
+        // Separate from the above because the two answer different questions.
+        // DumpEyeImage asks "can this engine read a frame back at all"; this
+        // one asks "what did the calibration actually correlate", and it must
+        // not disturb the surface to do it. A dump that re-renders would
+        // answer its own question rather than the calibration's.
+        void        DumpStashImage(const char* pszTag, HSURFACE hStash,
+                                   int nWidth, int nHeight, int nStepIn = 4,
+                                   int nY0In = 0, int nY1In = -1);
+
+        // Runs the calibration at several asked fields and reports whether the
+        // renderer's tangent ratio is CONSTANT.
+        //
+        // 0.733 was measured at one asked field, 45 degrees half, because that
+        // is the game's normal FOV flat. The VR path asks for about 70. If the
+        // renderer derives the horizontal from the vertical and the viewport
+        // aspect rather than applying a fixed tangent scale, the ratio varies
+        // and a VRFovXTest derived at 45 is wrong at 70 - which would waste a
+        // headset round. Neither this nor the vertical needs a headset.
+        void        SweepCameraField();
+
+        // Called from every exit path of the sweep, including the early ones.
+        void        QuitAfterSweepIfAsked();
+
+        // The heading the sweep turned the camera away from, so it can be put
+        // back on every exit path including the early ones (a project rule).
+        LTRotation  m_rSweepSavedRot;
+        LTBOOL      m_bSweepRotSaved;
+
+        // The tangent ratio the last calibration produced, or 0 if it did not
+        // produce a usable one. Written by CalibrateAxis, read by the sweep.
+        float       m_fLastFieldRatio;
+
+        // The focal length in pixels the last calibration measured, or 0.
+        //
+        // Reported alongside the ratio because the two hypotheses that have
+        // never been separated are distinguished by it directly: a renderer
+        // applying a fixed tangent scale gives a focal that tracks 1/tan(asked),
+        // while one that ignores the asked horizontal and derives it from the
+        // vertical gives the SAME focal at every asked field.
+        float       m_fLastFieldFocal;
+
+        // Set for one calibration at a time, so the sweep writes two images
+        // rather than thirty-two.
+        LTBOOL      m_bDumpCalibPasses;
+
+        // Asks the engine's own projection what field a given FOV and viewport
+        // produce, via Get3DCameraPt. No render, no headset, no judgement -
+        // and it reports the engine's belief, which may not be what d3d.ren
+        // draws. That difference is the whole VRFovXTest question.
+        void        ProbeCameraField();
+
+        // Times a real back-buffer readback through the proxy DDRAW.dll, on a
+        // finished world frame. This is the M4 transport number the brief
+        // scheduled and nobody has ever taken.
+        void        ProbeReadbackTick();
+
+        // Prints what LTRotation's multiply actually does, so composition
+        // order stops being something judged through a headset.
+        void        LogRotationConvention();
+
+        // Feeds each head axis in alone and prints which camera axis it
+        // actually moved. A pure function of two rotations - no headset needed.
+        void        LogHeadAxisTable();
+
+        // The engine's projection measured at the field the VR path actually
+        // uses, swept on the vertical. Answers whether a 121-degree vertical
+        // request survives at all - which nothing has ever checked.
+        void        ProbeVrField();
+
+        // Drives each renderer-visible operation a distinctive number of
+        // times, so the d3d.ren shim's per-slot counters name themselves.
+        void        ProbeRendererSlots();
+
+        // The same idea, staged: one operation per five-second window, so each
+        // burst lands in its own slice of the shim's per-interval counts and
+        // names exactly one slot.
+        void        TickRendererProbe();
+
+        // The warping question as a number: how far the rotation the
+        // compositor applies to our image differs from the rotation the
+        // scene actually made between render and display. Zero is correct.
+        void        LogFrameAgreement();
+
+        // The same residual for the pose actually being rendered right
+        // now, so a live run says whether the frames still agree.
+        float       FrameResidualDeg(const LTRotation& rHeadPrev,
+                                     const LTRotation& rHeadNow,
+                                     const LTRotation& rBody, int nMode);
+
+        // Eye separation in world units: from the headset's reported IPD when
+        // VRIPDAuto is on and the value is plausible, otherwise the fixed
+        // VRIPD. Guards against a loose headset IPD wheel silently changing
+        // the stereo baseline between two runs being compared.
+        float       EffectiveIPDUnits();
+
+        // While non-zero, the right half is yawed by a known angle so the host
+        // can measure the renderer's field from a single captured frame.
+        int         m_nCalibFrames;
+
+        // Consecutive-frame field capture: index of the frame being captured,
+        // -1 when idle, and how many to take. See VRFieldRun.
+        int         m_nFieldFrame;
+        int         m_nFieldFrames;
+        static const float kCalibYawRad;
+        HSURFACE    m_hMarkerOn;
+        HSURFACE    m_hMarkerOff;
+
+        // Green. Only used to colour the crosshair when the head-as-mouse
+        // experiment is running, so which arm is live can be seen in the
+        // headset rather than read off a console nobody can read in there.
+        HSURFACE    m_hMarkerAlt;
+        HSURFACE    GetEyeStashSurface(int nWidth, int nHeight);
+        void        LogEyeGeometry(int nEye, const LTVector& vBasePos);
+
+        HSURFACE    m_hEyeStash;
+        int         m_nEyeStashW;
+        int         m_nEyeStashH;
+
+        // VR experiment: add the head's movement to the same yaw and pitch the
+        // mouse writes, so head look and mouse look travel one identical path.
+        // Called from CalculateCameraRotation.
+        void        UpdateHeadAsMouse();
+
+        float       m_fVRHeadPrevYawDeg;    // last head angles seen, degrees
+        float       m_fVRHeadPrevPitchDeg;
+        float       m_fVRHeadAccumYaw;      // total injected, radians, so it
+        float       m_fVRHeadAccumPitch;    // can be handed back on toggle-off
+        LTBOOL      m_bVRHeadRefValid;
+
 		// Process the networking handshake message
 		void		ProcessHandshake(HMESSAGEREAD hMessage);
 
@@ -319,6 +563,11 @@ class CGameClientShell : public IClientShell
 		CPlayerSummaryMgr		m_PlayerSummary;	// Player stats data
 		CIntelItemMgr			m_IntelItemMgr;		// intelligence item data
 		CInterfaceMgr			m_InterfaceMgr;		// Interface manager
+		uint32					m_nVRModelFrame;
+		uint32		m_nVRUpdateTick;
+		uint32		m_nVRPublishedTick;	// the tick the list was last published for
+		bool		m_bVRLoadPublish;	// VRPublishLoadingScreen is running
+		void		VRPublishOnce();		// bumped per Update; the publish runs once per tick from RenderCamera	// published model list serial
 		CGlobalClientMgr		m_GlobalMgr;		// Contains global mgrs
 		CMoveMgr				m_MoveMgr;			// Always around...
 		CDamageFXMgr			m_DamageFXMgr;		// handle player damage
@@ -468,6 +717,11 @@ class CGameClientShell : public IClientShell
 
         LTBOOL          m_bRestoreOrientation;
 		HLOCALOBJ		m_h3rdPersonCrosshair;
+		// THE AIM MARKER: a sprite sitting where the gun is pointing.
+		// A screen-centre crosshair is meaningless once the weapon aims
+		// independently of the head, which is what motion controls did.
+		HLOCALOBJ		m_hVRAimMarker;
+		LTBOOL			m_bVRAimMarkerOn;
 		HLOCALOBJ		m_hBoundingBox;
 
         LTBOOL          m_bNightVision;         // does this player currently use NightVision
@@ -577,6 +831,7 @@ class CGameClientShell : public IClientShell
 		void	UpdateWeaponPosition();
 		void	UpdateWeaponMuzzlePosition();
         void    Update3rdPersonCrossHair(LTFLOAT fDistance);
+        void    UpdateVRAimMarker();
 		void	UpdateSoundReverb();
 
 		SOUNDFILTER* GetDynamicSoundFilter();
@@ -587,6 +842,8 @@ class CGameClientShell : public IClientShell
 		void	AdjustMenuPolygrid();
 		void	AdjustHeadBob();
 		void	UpdateDebugInfo();
+		// Numpad tuning for the muzzle flash - see the .cpp.
+		void	VRFlashTuneUpdate();
 		void	HandlePlayerStateChange(HMESSAGEREAD hMessage);
 		void	HandlePlayerDamage(HMESSAGEREAD hMessage);
 		void	HandleExitLevel(HMESSAGEREAD hMessage);

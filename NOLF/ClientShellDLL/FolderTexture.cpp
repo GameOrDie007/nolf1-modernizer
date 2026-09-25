@@ -67,6 +67,14 @@ LTBOOL CFolderTexture::Build()
 	if (g_pLayoutMgr->HasCustomValue(FOLDER_ID_TEXTURE,"SliderWidth"))
 		kSliderWidth = g_pLayoutMgr->GetFolderCustomInt(FOLDER_ID_TEXTURE,"SliderWidth");
 
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_DETAILLEVEL, IDS_TEXTURE_WORLD, IDS_TEXTURE_WEAPONS, IDS_TEXTURE_CHARS, IDS_TEXTURE_PROPS, IDS_TEXTURE_SFX, IDS_TEXTURE_SKY };
+		kTotalWidth = LabelColumn(kTotalWidth, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+		kHeaderWidth = kTotalWidth - kSpacerWidth;
+	}
+
 	CreateTitle(IDS_TITLE_TEXTURE);
 
 	m_pOverallCtrl = AddCycleItem(IDS_DETAILLEVEL,IDS_HELP_DETAILLEVEL,kHeaderWidth,kSpacerWidth,&m_nOverall);

@@ -34,6 +34,17 @@ class CSFXMgr
 
         CSpecialFX* FindSpecialFX(uint8 nType, HLOCALOBJ hObj);
 
+		// THE SAME SEARCH, BY THE FX'S OWN OBJECT.
+		//
+		// FindSpecialFX matches GetServerObj(), which is the handle of the
+		// SERVER object the effect represents. Anything that starts from a
+		// CLIENT object - the VR renderer's publish path walks the client's
+		// own object list - holds the other handle, GetObject(), and matching
+		// it against the server one finds nothing and says nothing. That cost
+		// a build: the polygrid amplitude lookup reported "no PolyGridFX" on
+		// a level with two of them.
+		CSpecialFX* FindSpecialFXByClientObj(uint8 nType, HLOCALOBJ hObj);
+
 		CSpecialFXList* GetCameraList() { return &m_cameraSFXList; }
 
 		void	RemoveSpecialFX(HLOCALOBJ hObj);

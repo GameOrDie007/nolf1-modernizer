@@ -125,10 +125,16 @@ public:
 
 	CLTGUIFont		*GetTitleFont();
 	CLTGUIFont		*GetHelpFont();
+	// How much bigger the help surface is drawn than its 640x480 layout
+	// rect: the screen ratio under VRMenuBigSubs, 1 otherwise.
+	float			HelpScale();
 	CLTGUIFont		*GetSmallFont();
 	CLTGUIFont		*GetMediumFont();
 	CLTGUIFont		*GetLargeFont();
 	CLTGUIFont		*GetDefaultFont();
+	// A value column wide enough for the page's longest label in the font it
+	// is drawn in: max(nGap, widest label + a margin). See the .cpp.
+	int				LabelColumn(int nGap, const int* pStringIds, int nIds, CLTGUIFont* pFont = LTNULL);
 
     inline void     SetTitleColor(HLTCOLOR titleColor)  { m_hTitleColor = titleColor; }
 

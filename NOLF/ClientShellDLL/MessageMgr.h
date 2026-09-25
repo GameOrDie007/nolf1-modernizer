@@ -199,6 +199,29 @@ class CCheatMgr
         void    ClearCheater() { m_bPlayerCheated = LTFALSE; }
         LTBOOL   IsCheater() { return m_bPlayerCheated; }
 
+		// VR LEVEL TOUR. +VRCheats is a bit set applied on every world entry
+		// (see UpdatePlayerInfo): 1 god, 2 everything (mpsanta), 4 every
+		// mission on the menu. Typed cheats TOGGLE, and a new level's player
+		// starts without god whatever the toggle remembers, so these SET.
+		LTBOOL   VRIsActive(CheatCode c) { return (c > CHEAT_NONE && c < CHEAT_MAX) ? s_CheatInfo[c].bActive : LTFALSE; }
+		void     VRSetGod()     { SetGodMode(LTTRUE); }
+		void     VRSetKFA()     { SetKFA(); }
+		void     VRSetMods()    { ModSquad(); }	// every mod for the weapons held - the scope and silencer the level tour needs
+		// VR DEBUG TOOLS - see VR_DEBUG_TOOLS in GameClientShell.cpp. Delete
+		// this line with the rest of them.
+		void     VRExitLevel()  { SetExitLevel(); }
+		void     VRGod(LTBOOL b)      { SetGodMode(b); }
+		void     VRClip(LTBOOL b)     { SetClipMode(b); }
+		void     VRNoAI(LTBOOL b)     { RemoveAI(b); }
+		void     VRMissions(LTBOOL b) { AllowAllMissions(b); }
+		// AND THE MODS. The switch applier is the only path that runs in a
+		// debug-tools build; the direct VRSetMods call sits in its #else and
+		// never ran, so a cheated loadout had every gun and not one scope or
+		// silencer on the server (desk, 21 September: zero mod pickups).
+		// Sent with each arsenal retry; the server ignores a mod it already holds.
+		void     VRArsenal()          { SetKFA(); FullGear(); ModSquad(); }
+		void     VRShowPos(LTBOOL b)  { SetPos(b); }
+
 		struct CheatList
 		{
 			char* szCheat;

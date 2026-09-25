@@ -74,6 +74,9 @@ enum eFolderID
 	FOLDER_ID_MAIN_WINTER,
 	FOLDER_ID_HUD,
 	FOLDER_ID_JUKEBOX,
+	// The VR options page. Appended rather than inserted: these ids index
+	// the layout tag table position for position.
+	FOLDER_ID_VR,
 
 	//this must be the last id
 	FOLDER_ID_UNASSIGNED,

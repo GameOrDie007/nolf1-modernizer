@@ -24,6 +24,179 @@
 #include "ClientWeaponUtils.h"
 #include "iltphysics.h"
 #include "PlayerStats.h"
+#include "VRShared.h"
+#include "VRWeaponVar.h"
+#include "VRLog.h"
+#include "VRPrims.h"
+extern VarTrack g_vtVRGunAutoTrim;
+
+// VR: aim the weapon with the right controller instead of the head.
+extern VarTrack g_vtVRHandAim;
+extern VarTrack g_vtVRFlashTune;
+extern VarTrack g_vtVRFlashOffR;
+extern VarTrack g_vtVRFlashOffU;
+extern VarTrack g_vtVRFlashOffF;
+extern VarTrack g_vtVRFlashHold;
+extern VarTrack g_vtVRHandPosScale;
+extern VarTrack g_vtVRHandFire;
+// TEST ONLY: pretend no silencer is fitted, so the flash path can be
+// exercised whatever the player happens to be carrying. Every weapon in
+// Cate's early save is silenced - the P38 by design, and the mods she owns
+// fit the rest - so a desk run cannot otherwise produce a flash at all,
+// and three runs on 11 September measured the gate rather than the flash.
+static VarTrack g_vtVRDebugNoSilencer;
+
+extern VarTrack g_vtVRGunTrimPitch;
+extern VarTrack g_vtVRGunAtHand;
+extern VarTrack g_vtVRHandRoll;
+extern VarTrack g_vtVRHeadAsMouse;
+extern VarTrack g_vtVRHaptics;
+extern VarTrack g_vtVRViewModelScale;
+extern VarTrack g_vtVRWeaponDist;
+extern VarTrack g_vtVRWeaponScale;
+
+// Per-weapon placement. Each falls back to the global VarTrack above when no
+// "@<weapon>" override exists, so behaviour is unchanged until an override is
+// actually set. See VRWeaponVar.h for the naming convention.
+// AND THE SAME FOR THE OTHER TWO EFFECTS, so each can be tuned on its own.
+//
+// The tracer and the casings are ADDITIVE ON TOP of the flash's offset, not
+// replacements for it. e71f170 deliberately made one number move the flash and
+// the tracer together, because tuning one and leaving the other behind is the
+// fault that started this whole thread. That still holds: move the flash and
+// all three follow. These are the per-effect difference after that.
+static VRWeaponVar s_vrTracerOffR;
+static VRWeaponVar s_vrTracerOffU;
+static VRWeaponVar s_vrTracerOffF;
+static VRWeaponVar s_vrShellOffR;
+static VRWeaponVar s_vrShellOffU;
+static VRWeaponVar s_vrShellOffF;
+static VRWeaponVar s_vrGripOffR;
+static VRWeaponVar s_vrGripOffU;
+static VRWeaponVar s_vrGripOffF;
+// THE SCOPE LENS, for a scope that is part of the gun mesh: where the eyepiece
+// sits in the gun's frame (world units, R/U/F), on top of whatever the mesh
+// says, and a disc radius that replaces the mesh's when set. The tuner's
+// LENS mode writes the three offsets.
+static VRWeaponVar s_vrLensOffR;
+static VRWeaponVar s_vrLensOffU;
+static VRWeaponVar s_vrLensOffF;
+static VRWeaponVar s_vrLensRad;
+static VRWeaponVar s_vrWeaponDist;
+static VRWeaponVar s_vrWeaponScale;
+// THE ANGLE THE TUNER SETS BY EYE, per weapon, degrees, always on. Headset
+// testing, 20 September: the Contender pointed down at roughly 30 degrees -
+// the player-view models share no axis convention, so each gets its own.
+static VRWeaponVar s_vrAngleYaw;
+static VRWeaponVar s_vrAnglePitch;
+static VRWeaponVar s_vrAngleRoll;
+// AIM: where the shot line sits relative to the DRAWN gun, degrees. ANGLE
+// places the gun in the hand and the shot follows it; AIM is the residual,
+// because a model's +z is not always its barrel. The P38 sat right in the
+// hand at ANGLE pitch 4 while its reticle, flash and burst ran 4 degrees
+// above the barrel. Positive pitch = up, as ANGLE.
+static VRWeaponVar s_vrAimYaw;
+static VRWeaponVar s_vrAimPitch;
+// ...plus the automatic barrel alignment's own contribution, see the table in
+// GameClientShell.cpp: the aligned gun's barrel sits at the mirror of the
+// pivot line, so the shot goes there too. Degrees, positive pitch up.
+extern void VRAlignTrimForWeapon(int nWeaponId, float& fPitch, float& fYaw);
+static void VRWeaponVarsInit();
+static VarTrack s_vtAimFollowsAlign;
+static void VRAimTotal(int nWeaponId, float& fYawDeg, float& fPitchDeg)
+{
+	VRWeaponVarsInit();
+	if (!s_vtAimFollowsAlign.IsInitted()) s_vtAimFollowsAlign.Init(g_pLTClient, "VRAimFollowsAlignment", LTNULL, 1.0f);
+	fYawDeg   = s_vrAimYaw  .Get(nWeaponId);
+	fPitchDeg = s_vrAimPitch.Get(nWeaponId);
+	float fP = 0.0f, fY = 0.0f;
+	VRAlignTrimForWeapon(nWeaponId, fP, fY);
+	const bool bFollow = s_vtAimFollowsAlign.GetFloat() > 0.0f;
+	if (bFollow) { fYawDeg -= fY; fPitchDeg -= fP; }
+	static int s_nSaidFor = -1; static float s_fSaidP = -999.0f;
+	if (s_nSaidFor != nWeaponId || s_fSaidP != fP)
+	{
+		s_nSaidFor = nWeaponId; s_fSaidP = fP;
+		VRLog::Msg("VRAim: weapon %d shot line yaw %+.1f pitch %+.1f = AIM trim (%+.1f %+.1f) minus alignment (%+.1f %+.1f)%s",
+				   nWeaponId, fYawDeg, fPitchDeg, s_vrAimYaw.Get(nWeaponId), s_vrAimPitch.Get(nWeaponId), fY, fP,
+				   bFollow ? "" : " (alignment NOT applied, VRAimFollowsAlignment 0)");
+	}
+}
+// THE MUZZLE FLASH'S OFFSET IS PER-WEAPON, and measured rather than assumed.
+// With the flash finally in the right coordinate space, what is left is a
+// residual along the barrel, and it is neither constant nor proportional to the
+// authored MuzzlePos - the AK47 wants about +10 units and the Sterling wants 0,
+// while their authored forward figures are 16.54 and 19.30. So it belongs here,
+// beside the angle trims, keyed by weapon, additive over a global.
+static VarTrack    g_vtVRFlashWorld;
+// VRFlashTrace: one line a frame, flash against gun. See UpdateFlash.
+static VarTrack    g_vtVRFlashTrace;
+static VRWeaponVar s_vrFlashOffR;
+static VRWeaponVar s_vrFlashOffU;
+static VRWeaponVar s_vrFlashOffF;
+static LTBOOL      s_bVRWeaponVarsReady = LTFALSE;
+
+// THE CACHE HAS TO BE DROPPED WHEN THE TUNER CREATES AN OVERRIDE.
+//
+// VRWeaponVar::Get resolves ONCE per weapon id and remembers which variable
+// answered. At level load VRFlashOffF@ak47 does not exist yet, so it resolves to
+// the global and caches that. The tuner then creates the @ak47 variable - and
+// the reader carries on reading the global, so the numbers climb on screen and
+// the flash does not move. Headset testing confirmed it: the tuning buttons
+// did not move the muzzle flash at all.
+//
+// Re-Init sets m_nCachedId back to -2, which forces the next Get to resolve
+// afresh and find the override.
+void VRFlashOffsetsInvalidate()
+{
+	s_bVRWeaponVarsReady = LTFALSE;
+}
+
+// THE LEFTORIUM: a gun-frame offset on the MIRRORED gun is the same offset
+// with its right-hand component the other way. The drawn gun is mirrored in
+// VRPublishModels; everything placed on it goes through here.
+static inline LTVector VRMirR(LTVector v)
+{
+	if (VRShared::SwapHands()) v.x = -v.x;
+	return v;
+}
+
+static void VRWeaponVarsInit()
+{
+	if (s_bVRWeaponVarsReady) return;
+	s_bVRWeaponVarsReady = LTTRUE;
+
+	// These defaults are only reached if the global console variable is missing
+	// too, which should not happen. They exist so a lookup failure degrades to
+	// the current behaviour rather than to zero.
+	s_vrWeaponDist .Init("VRWeaponDist",  2.5f);
+	s_vrWeaponScale.Init("VRWeaponScale", 0.4f);
+	// Angles additive: the per-weapon value is a difference, the global is the
+	// common correction for all of them together. See VRWeaponVar.h.
+	s_vrAngleYaw   .Init("VRAngleYaw",    0.0f, true);
+	s_vrAnglePitch .Init("VRAnglePitch",  0.0f, true);
+	s_vrAngleRoll  .Init("VRAngleRoll",   0.0f, true);
+	s_vrAimYaw     .Init("VRAimYaw",      0.0f, true);
+	s_vrAimPitch   .Init("VRAimPitch",    0.0f, true);
+	// Additive, like the angles: the per-weapon value is that gun's difference
+	// and the global is the common correction for all of them at once.
+	s_vrFlashOffR  .Init("VRFlashOffR",   0.0f, true);
+	s_vrFlashOffU  .Init("VRFlashOffU",   0.0f, true);
+	s_vrFlashOffF  .Init("VRFlashOffF",   0.0f, true);
+	s_vrTracerOffR .Init("VRTracerOffR",  0.0f, true);
+	s_vrTracerOffU .Init("VRTracerOffU",  0.0f, true);
+	s_vrTracerOffF .Init("VRTracerOffF",  0.0f, true);
+	s_vrShellOffR  .Init("VRShellOffR",   0.0f, true);
+	s_vrShellOffU  .Init("VRShellOffU",   0.0f, true);
+	s_vrShellOffF  .Init("VRShellOffF",   0.0f, true);
+	s_vrGripOffR   .Init("VRGripOffR",    0.0f, true);
+	s_vrGripOffU   .Init("VRGripOffU",    0.0f, true);
+	s_vrGripOffF   .Init("VRGripOffF",    0.0f, true);
+	s_vrLensOffR   .Init("VRLensOffR",    0.0f, true);
+	s_vrLensOffU   .Init("VRLensOffU",    0.0f, true);
+	s_vrLensOffF   .Init("VRLensOffF",    0.0f, true);
+	s_vrLensRad    .Init("VRLensRad",     0.0f, false);
+}
 #include "WeaponFXTypes.h"
 #include "SurfaceFunctions.h"
 #include "iltcustomdraw.h"
@@ -232,6 +405,33 @@ LTBOOL CWeaponModel::Create(ILTClient* pClientDE, uint8 nWeaponId, uint8 nAmmoId
     if (!pClientDE) return LTFALSE;
 
 	m_nWeaponId	= nWeaponId;
+
+	// Report which per-weapon variables answer for this weapon, every time it
+	// changes, whether or not VR is running.
+	//
+	// Deliberately NOT inside the hand-aim block: that only runs with a tracked
+	// controller, so the mapping would only ever be observable in a headset -
+	// and a mapping that can only be checked in a headset is one nobody checks.
+	// Flat, switching weapons, this proves the slug derivation and the override
+	// lookup for every gun in the game.
+	{
+		VRWeaponVarsInit();
+		char szSlug[64];
+		VRWeaponSlugForId(m_nWeaponId, szSlug, sizeof(szSlug));
+
+		if (szSlug[0])
+		{
+			const float fS = s_vrWeaponScale.Get(m_nWeaponId);
+			const float fY = s_vrAngleYaw  .Get(m_nWeaponId);
+			const float fP = s_vrAnglePitch.Get(m_nWeaponId);
+			const float fR = s_vrAngleRoll .Get(m_nWeaponId);
+			const bool  bOv = s_vrWeaponScale.UsingOverride() || s_vrAngleYaw.UsingOverride() ||
+							  s_vrAnglePitch.UsingOverride() || s_vrAngleRoll.UsingOverride();
+			VRLog::Msg("weapon '%s': scale %.3f, angle yaw %+.2f pitch %+.2f roll %+.2f%s",
+				szSlug, fS, fY, fP, fR,
+				bOv ? "   <- a per-weapon value answers for this gun" : "");
+		}
+	}
 	m_pWeapon = g_pWeaponMgr->GetWeapon(nWeaponId);
     if (!m_pWeapon) return LTFALSE;
 
@@ -535,6 +735,18 @@ void CWeaponModel::RemoveModel()
 
 void CWeaponModel::RemoveMods()
 {
+	// NO MODS MEANS NO SILENCER, whether or not there was a model to delete.
+	//
+	// m_bHaveSilencer was cleared INSIDE the block below - only when a
+	// silencer model existed - while CreateSilencer sets it to LTTRUE
+	// unconditionally, even if CreateModelObject returned nothing. Once the
+	// two disagree the flag is stuck true for the rest of the session, and a
+	// stuck "silenced" is not cosmetic: CWeaponModel::UpdateWeaponModel does
+	// not even CALL UpdateFlash for a silenced weapon, so every gun in the
+	// game stops producing a muzzle flash. Measured 11 September: after the
+	// P38, the revolver reported "silencer FITTED" too.
+	m_bHaveSilencer = LTFALSE;
+
 	// Remove the silencer model...
 
 	if (m_hSilencerModel)
@@ -542,7 +754,6 @@ void CWeaponModel::RemoveMods()
         g_pLTClient->DeleteObject(m_hSilencerModel);
         m_hSilencerModel  = LTNULL;
 		m_hSilencerSocket = INVALID_MODEL_SOCKET;
-        m_bHaveSilencer   = LTFALSE;
 	}
 
 	// Remove the laser model...
@@ -639,6 +850,25 @@ WeaponState CWeaponModel::UpdateWeaponModel(LTRotation rCamRot, LTVector vCamPos
 	}
 
 
+	// VR DIAGNOSTIC: while the trigger is held, what the weapon thinks, twice a
+	// second. A trigger pull that produces nothing is answered by which
+	// of these refuses: the state machine, the disabled flag, the edge flags,
+	// or the ammo.
+	if (bFire)
+	{
+		static double s_fHeldSaid = -1e9;
+		const double fNowH = VRLog::NowMs() / 1000.0;
+		if (fNowH - s_fHeldSaid > 0.5)
+		{
+			s_fHeldSaid = fNowH;
+			CPlayerStats* pStatsH = g_pGameClientShell->GetPlayerStats();
+			VRLog::Msg("VRTrigger: held - weapon %d state %d disabled %d keyDownLast %d canSetLastFire %d m_bFire %d ammo %d",
+					   (int)m_nWeaponId, (int)m_eState, (int)m_bDisabled, (int)m_bFireKeyDownLastUpdate,
+					   (int)m_bCanSetLastFire, (int)m_bFire,
+					   pStatsH ? pStatsH->GetAmmoCount(m_nAmmoId) : -1);
+		}
+	}
+
 	// Update the state of the model...
 
 	WeaponState eState = UpdateModelState(bFire);
@@ -697,7 +927,7 @@ WeaponState CWeaponModel::UpdateWeaponModel(LTRotation rCamRot, LTVector vCamPos
 
         g_pLTClient->SetObjectPos(m_hObject, &vNewPos, LTTRUE);
 
-		if (!m_bHaveSilencer)
+		if (!m_bHaveSilencer || g_vtVRDebugNoSilencer.GetFloat() > 0.0f)
 		{
 			StartFlash();
 		}
@@ -712,12 +942,633 @@ WeaponState CWeaponModel::UpdateWeaponModel(LTRotation rCamRot, LTVector vCamPos
 	}
 
 
+	// --- VR: aim the weapon with the hand rather than the head ------------- //
+	//
+	// Applied HERE, after both branches above have set the position and before
+	// the attachments update, because silencer, laser and scope derive their
+	// transforms from this model's sockets and must see the final one. The
+	// three places the weapon transform is set (the identity rotation earlier,
+	// and a position in each branch) are all upstream of this point, so one
+	// override covers them - converting them individually would have left
+	// whichever was missed fighting this.
+	//
+	// The weapon is camera-relative, which makes this much simpler than it
+	// looks: the camera already carries body*head, so expressing the hand
+	// relative to the camera cancels the body rotation entirely. Only the
+	// difference between hand and head is needed.
+	//
+	// Direction only - yaw and pitch, not roll. A barrel needs a direction,
+	// and roll about the barrel is cosmetic. It also avoids reconstructing a
+	// rotation from three published angles, which is exactly what went wrong
+	// with head tracking before it was moved to a quaternion.
+	// Say why nothing happened, ONCE per change of reason.
+	//
+	// This block has three silent early-outs, and every instrument upstream of
+	// it - the config loading, the weapon slug resolving, the per-weapon values
+	// resolving to a name - reports success whichever way they go. Three
+	// correct measurements in a row are not a diagnosis when none of them
+	// watches the last hop, and a report of no hands and no gun cost a test
+	// round that this line would have answered from the desk.
+	//
+	// Per REASON, not per frame: a per-frame failure here writes gigabytes and
+	// buries everything else in the log.
+	{
+		const bool bOn   = (g_vtVRHandAim.GetFloat() > 0.0f);
+		const bool bLive = VRShared::IsLive();
+		const bool bHand = bLive && (VRShared::State().Hands[1].nActive != 0);
+
+		const int nReason = !bOn ? 1 : (!bLive ? 2 : (!bHand ? 3 : 0));
+
+		static int s_nLastReason = -1;
+		if (nReason != s_nLastReason)
+		{
+			s_nLastReason = nReason;
+			switch (nReason)
+			{
+			case 1: VRLog::Msg("VR weapon: NOT placing it - VRHandAim is 0"); break;
+			case 2: VRLog::Msg("VR weapon: NOT placing it - no host attached (flat run)"); break;
+			case 3: VRLog::Msg("VR weapon: NOT placing it - the RIGHT controller is not tracking"); break;
+			default: VRLog::Msg("VR weapon: placing it (VRHandAim %d, right controller tracking)",
+						(int)g_vtVRHandAim.GetFloat()); break;
+			}
+		}
+	}
+
+	if (g_vtVRHandAim.GetFloat() > 0.0f && VRShared::IsLive())
+	{
+		const VRSharedState& s = VRShared::State();
+		const VRHandState&   h = s.Hands[1];			// right hand
+
+		if (h.nActive)
+		{
+			const float fD2R = 0.01745329f;
+
+			// Hand direction relative to the view. The Z-flip that converts
+			// OpenXR to LithTech inverts yaw and pitch, matching the scales
+			// measured for the head.
+			const float fYaw   = -(h.fYawDeg   - s.fHeadYawDeg)   * fD2R;
+			const float fPitch = -(h.fPitchDeg - s.fHeadPitchDeg) * fD2R;
+
+			// 1 = move only, 2 = rotate only, 3 = both. Split because the two
+			// halves fail differently and the first attempt could not tell
+			// them apart: the model rotates about its own origin, so if that
+			// origin is not where the geometry sits, rotating swings the arms
+			// out of frame - which matches the symptom better than any
+			// translation error does.
+			const int nMode = (int)g_vtVRHandAim.GetFloat();
+
+			if (nMode == 2 || nMode == 3)
+			{
+				// Per-weapon angle, in degrees, on top of where the hand points.
+				//
+				// This is the axis on which weapons differ most: the models are
+				// authored for a flat over-the-shoulder view and each sits in
+				// the hand at its own angle, so one hand pose cannot hold every
+				// weapon correctly. The angle is set by eye, per weapon, in the
+				// tuner's ANGLE mode and saved to vrtune.cfg. Zero until tuned.
+				VRWeaponVarsInit();
+				// The tuner's ANGLE mode, degrees, no gate. Pitch is negated so
+				// that a positive number (the Up key) tilts the barrel UP;
+				// positive X rotation in this engine tilts the muzzle down.
+				// THE LEFTORIUM mirrors the gun into the left hand, and the
+				// mirror image of a turn or a roll is the opposite one.
+				const float fMir      = VRShared::SwapHands() ? -1.0f : 1.0f;
+				const float fAngYaw   =  s_vrAngleYaw  .Get(m_nWeaponId) * fD2R * fMir;
+				const float fAngPitch = -s_vrAnglePitch.Get(m_nWeaponId) * fD2R;
+				const float fAngRoll  =  s_vrAngleRoll .Get(m_nWeaponId) * fD2R * fMir;
+
+				// TWO rotations, and the difference matters.
+				//
+				// rHand is where the hand points, and it is what swings the
+				// weapon's POSITION about the eye further down. rModel is that
+				// plus the per-weapon trim, and it only ever sets the model's
+				// orientation.
+				//
+				// Folding the trim into rHand - which the first version of this
+				// did - swings the position too: the p38's -48 degree yaw trim
+				// carried the gun 48 degrees round the eye and out of the view
+				// entirely. Reported in headset testing as no hands and no gun. It is
+				// the same trap the note below already warns about, walked into
+				// from the other direction.
+				LTRotation rHand;
+				rHand.Init();
+				g_pLTClient->EulerRotateY(&rHand, fYaw);
+				g_pLTClient->EulerRotateX(&rHand, fPitch);
+
+				// THE WRIST. Turning the controller over did nothing, because
+				// only yaw and pitch were ever taken from the hand - the third
+				// axis was dropped and the only roll applied was the per-weapon
+				// trim, a constant. A hand turns about three axes and the gun
+				// in it should follow all three.
+				//
+				// Same Z-flip sign as the other two. Roll is a rotation about
+				// the barrel, so it changes how the gun sits in the hand and
+				// nothing about where it points - which is why the fire
+				// direction does not want it and this does.
+				// SIGN FLIPPED 8 SEPTEMBER. Headset testing: rolling the
+				// controller left and right rolled the gun the opposite way -
+				// the same fault the Raze port had. The comment
+				// below argued this took the Z-flip sign of yaw and pitch; the
+				// headset says roll does not. Yaw and pitch reverse under a
+				// Z-flip because they are rotations that involve Z; roll is a
+				// rotation ABOUT Z and keeps its sense.
+				const float fRoll = +(h.fRollDeg - s.fHeadRollDeg) * fD2R;
+
+				// THE MODEL'S ORIENTATION IS ABSOLUTE, NOT RELATIVE TO THE HEAD.
+				//
+				// Headset testing: the gun rolled correctly but did not pitch
+				// up and down fully - it lifted, but short of the controller's
+				// full movement. fYaw and fPitch above subtract the HEAD's angles,
+				// on the theory that the renderer adds the head back on top.
+				// It does not: the publish rotates these nodes by the camera
+				// OBJECT's rotation, and that object never carries the head
+				// pose - the fire-direction code says so in as many words and
+				// uses absolute angles for exactly that reason. So the drawn
+				// gun was hand MINUS head: correct with the head level, and
+				// short by the head's pitch whenever the player looked where they
+				// pointed, which is always. The dot was right; the gun lagged.
+				//
+				// Same Z-flip sign as the fire path. rHand above keeps the
+				// relative form because it only swings the authored POSITION,
+				// which VRGunAtHand does not use.
+				const float fAbsYaw   = -h.fYawDeg   * fD2R;
+				const float fAbsPitch = -h.fPitchDeg * fD2R;
+				LTRotation rModel;
+				rModel.Init();
+				g_pLTClient->EulerRotateY(&rModel, fAbsYaw   + fAngYaw);
+				// VRGunTrimPitch: degrees, one number for the whole hand rig.
+				// The barrel sits pitched up relative to the aim pose - in the
+				// headset it sat in the hand tilted higher than it should -
+				// because the model's barrel is not along the wrist bone's
+				// axis. Positive tilts the muzzle down.
+				// ...UNLESS THE BARREL IS ALIGNED PER WEAPON (VRGunAutoTrim,
+				// GameClientShell's rest capture): one number fitted the
+				// Walther and put the sub-machine gun's barrel below its aim.
+				g_pLTClient->EulerRotateX(&rModel, fAbsPitch + fAngPitch
+										  + ((g_vtVRGunAutoTrim.GetFloat() > 0.0f) ? 0.0f
+											 : g_vtVRGunTrimPitch.GetFloat() * fD2R));
+
+				// Roll is applied here and not to the head. Head roll is
+				// dropped elsewhere because it is cosmetic and rebuilding it
+				// from Euler angles has warped the world before; this is a
+				// fixed placement offset for one model, which is a different
+				// thing entirely.
+				const float fRollTotal = fAngRoll
+					+ ((g_vtVRHandRoll.GetFloat() > 0.0f) ? fRoll : 0.0f);
+				if (fRollTotal != 0.0f)
+					g_pLTClient->EulerRotateZ(&rModel, fRollTotal);
+
+				g_pLTClient->SetObjectRotation(m_hObject, &rModel);
+
+				// Swing the weapon about the EYE, not about its own origin.
+				//
+				// Rotating in place turns the model around whatever point the
+				// artist happened to use as its origin, which is not the grip -
+				// so the arms swung out of frame and could only be found by
+				// putting the controller on a desk and looking away.
+				//
+				// Carrying the authored offset through the same rotation keeps
+				// the gun at exactly the distance from the face the game
+				// intended, so it can never leave the view, while still
+				// pointing where the hand points. That is also why free
+				// positional tracking was abandoned here: an inch of hand
+				// movement threw the model off screen, and no scale factor
+				// fixes something that can leave the frame at all.
+				LTVector vHU, vHR, vHF;
+				g_pLTClient->GetRotationVectors(&rHand, &vHU, &vHR, &vHF);
+
+				// Push the weapon further from the eye. The player reports the
+				// silencer alone filling the screen top to bottom, which is
+				// backwards from what the field of view predicts: the world is
+				// drawn at 120 degrees vertical where the flat game uses 78, so
+				// at an unchanged distance the gun should look SMALLER, not
+				// larger.
+				//
+				// That mismatch suggests the weapon is drawn with a different
+				// field from the world - which would make it about twice its
+				// correct size relative to everything else, and is the thing to
+				// establish before treating distance as the real fix. Until
+				// then this is an honest workaround, not an explanation.
+				VRWeaponVarsInit();
+				const float fDistRaw = s_vrWeaponDist.Get(m_nWeaponId);
+				const float fDist = (fDistRaw > 0.1f) ? fDistRaw : 1.0f;
+
+				LTVector vSwung = (vHR * vNewPos.x + vHU * vNewPos.y + vHF * vNewPos.z) * fDist;
+				g_pLTClient->SetObjectPos(m_hObject, &vSwung, LTTRUE);
+
+				// Where the weapon actually ended up, once per weapon.
+				//
+				// A report of no hands and no gun is not one anyone can act
+				// on without knowing whether the model is off to the side,
+				// behind the eye, or simply too small to notice. The offset is
+				// relative to the camera, so a large sideways or backwards
+				// component means it left the view rather than failed to draw.
+				{
+					// Per WEAPON *and* per change of hand angle. Keyed on the
+					// weapon alone, an A/B that holds the controller at two
+					// different angles logs the first arm and stays silent for
+					// the second - so the one comparison the line exists to
+					// support is the one it cannot make.
+					// AND NOT MORE THAN FOUR TIMES A SECOND. "Only when the
+					// angle CHANGES" reads like a cap and is not one: in VR the
+					// hand is always moving, and a hand turning at even 45 deg/s
+					// crosses half a degree inside one frame. Measured over the
+					// 15-minute soak, this line and its partner in GetFireInfo
+					// wrote 46,509 records each - 52 a second, 93,000 of the
+					// run's 108,000 lines - which is a per-frame file write in
+					// the middle of a headset session.
+					//
+					// A quarter-second throttle keeps every trend these lines
+					// exist to show and drops them by thirteen times.
+					static int    s_nPosLoggedFor = -2;
+					static float  s_fLoggedYaw = -9999.0f;
+					static double s_fPosLoggedAt = -1.0;
+					const double fNowPos = g_pLTClient->GetTime();
+					if ((m_nWeaponId != s_nPosLoggedFor
+							|| fabsf(h.fYawDeg - s_fLoggedYaw) > 0.5f)
+						&& (fNowPos - s_fPosLoggedAt) > 0.25)
+					{
+						s_nPosLoggedFor = m_nWeaponId;
+						s_fLoggedYaw = h.fYawDeg;
+						s_fPosLoggedAt = fNowPos;
+						// vSwung IS ALREADY CAMERA-RELATIVE - the line above
+						// this block says so in the retail path's own words,
+						// "this is all now camera-relative" - so subtracting
+						// the world camera position from it, which is what
+						// this used to do, measures the camera's distance from
+						// the map origin and calls it the weapon's offset from
+						// the eye. It reported the gun 7000 units away and
+						// "BEHIND THE EYE" on a frame where it was drawn
+						// perfectly well, which is a diagnosis nobody could act
+						// on and one I acted on for twenty minutes.
+						const float fFwd = vSwung.z;
+						VRLog::Msg("  weapon at x %+.1f y %+.1f z %+.1f units"
+							" camera-relative (dist x%.2f, scale x%.3f)"
+							"  | hand y%+.1f p%+.1f vs head y%+.1f p%+.1f%s",
+							vSwung.x, vSwung.y, vSwung.z, fDist,
+							s_vrWeaponScale.Get(m_nWeaponId),
+							h.fYawDeg, h.fPitchDeg,
+							s.fHeadYawDeg, s.fHeadPitchDeg,
+							(fFwd <= 0.0f) ? "   <- behind the eye" : "");
+					}
+				}
+
+				// Shrink the model.
+				//
+				// Distance turned out not to be the lever: pushing the weapon
+				// 2.5x further away changed its apparent size not at all, which
+				// cannot happen under a perspective projection. Taken with the
+				// rotation working correctly - so it IS this object - and mode
+				// 1 having thrown it off screen - so position IS applied - the
+				// only explanation left is that the model is simply enormous.
+				//
+				// That is normal for a player-view weapon of this era: authored
+				// oversized and placed very close, because the flat game draws
+				// it through a narrow field where that reads correctly. A
+				// headset's 120 degree field does not, so it has to come down
+				// in size rather than move away.
+				const float fScaleRaw = s_vrWeaponScale.Get(m_nWeaponId);
+				const float fScale = (fScaleRaw > 0.01f) ? fScaleRaw : 1.0f;
+				LTVector vScale(fScale, fScale, fScale);
+				g_pLTClient->SetObjectScale(m_hObject, &vScale);
+
+				// The attachments are SEPARATE objects, not part of the weapon
+				// mesh. Scaling only m_hObject shrank the arms and left the
+				// silencer at full size, filling the screen on its own - which
+				// is what the player saw and what finally identified this.
+				if (m_hSilencerModel) g_pLTClient->SetObjectScale(m_hSilencerModel, &vScale);
+				if (m_hLaserModel)    g_pLTClient->SetObjectScale(m_hLaserModel,    &vScale);
+				if (m_hScopeModel)    g_pLTClient->SetObjectScale(m_hScopeModel,    &vScale);
+			}
+
+			// OFFSET from where the game already puts the weapon, not a
+			// replacement for it.
+			//
+			// Replacing it outright put the model's origin at the hand, which
+			// sits well below the view axis - the gun vanished off the bottom
+			// of the screen unless the hand was raised above the head, and what
+			// remained was badly stretched, because the edge of a 120 degree
+			// rectilinear projection distorts severely. The game's own offset
+			// is authored to sit the weapon correctly in frame, and the model's
+			// origin is not its grip, so that offset has to be kept.
+			//
+			// A neutral resting pose is subtracted so the delta is zero when
+			// the hand is where the flat game assumes it is: roughly 35 cm
+			// below and 35 cm in front of the head, a little to the right.
+			// Moving the hand from there moves the gun from its normal place.
+			// 58.75 IS THE WORLD'S SCALE AND THIS IS NOT WORLD SPACE.
+			//
+			// 1 unit = 17.02 mm is correct for the level - it comes from a
+			// 1600 mm eye height over 94 units - and it is wrong here by more
+			// than an order of magnitude, because the weapon is positioned
+			// CAMERA-RELATIVE in a space the retail path scales for itself.
+			// Measured at the desk with a fake controller:
+			//
+			//   authored weapon offset   (+0.4, -0.5, +1.3)  ~1.5 units total
+			//   10 cm of hand movement   +5.9 units          4x the whole offset
+			//
+			// So an inch of hand travel threw the model off screen, which is
+			// exactly what the note below says happened and why positional
+			// tracking was abandoned. It was never the idea that was wrong.
+			//
+			// WHAT THE RIGHT NUMBER IS, derived rather than fitted: the
+			// authored offset is the game's own statement of where a
+			// hand-held weapon sits relative to the eye. Taking that as an arm
+			// at roughly 45 cm forward, 15 cm right and 17 cm down gives
+			// 1.3/0.45 = 2.9, 0.4/0.15 = 2.7 and 0.5/0.17 = 2.9 units per
+			// metre - three axes agreeing on about 2.8, against 58.75 in use.
+			//
+			// A CVAR, because that derivation assumes an arm's length and only
+			// a headset can say whether it feels 1:1. VRHandPosScale 58.75
+			// restores the old behaviour exactly.
+			const float fUnitsPerMetre = (g_vtVRHandPosScale.GetFloat() > 0.0f)
+				? g_vtVRHandPosScale.GetFloat() : 3.0f;
+			// THE REST POSE IS ONLY FOR THE OFFSET MODEL.
+			//
+			// Two placements. AT the controller and nowhere else: a held gun
+			// has no authored screen offset, the controller is where the hand
+			// is, and that is where the gun goes.
+			//
+			// The OFFSET placement keeps the flat game's authored camera-relative
+			// offset and swings the weapon around the EYE, because an early
+			// attempt at putting the origin at the hand sent the gun off the
+			// bottom of the screen. That attempt used 58.75 units per metre -
+			// the WORLD's scale - in a space that needs about 3, so an inch of
+			// hand movement moved the gun by more than its whole offset. The
+			// idea was not what failed.
+			//
+			// VRGunAtHand 1 is the first: the hand's displacement from the
+			// head IS the position, with no authored offset and no rest pose to
+			// subtract, because there is nothing to be a delta from.
+			const bool bAtHand = (g_vtVRGunAtHand.GetFloat() > 0.0f);
+			const float fRestX = bAtHand ? 0.0f :  0.15f;
+			const float fRestY = bAtHand ? 0.0f : -0.35f;
+			const float fRestZ = bAtHand ? 0.0f : -0.35f;
+
+			LTVector vHand;
+			vHand.x = ((h.fPosX - s.fHeadPosX) - fRestX) * fUnitsPerMetre;
+			vHand.y = ((h.fPosY - s.fHeadPosY) - fRestY) * fUnitsPerMetre;
+			vHand.z = -((h.fPosZ - s.fHeadPosZ) - fRestZ) * fUnitsPerMetre;	// Z flip
+
+			// NO HEAD IN THIS BASIS. The camera object carries the body's
+			// rotation here (the head is applied inside RenderWorldEyes and
+			// put back), so the hand's tracking-space offset maps straight
+			// onto it - the same way the fire direction maps the hand's
+			// absolute angles. The head-yaw undo this used to do was wrong by
+			// the head yaw. Kept only for VRHeadAsMouse, where the body IS
+			// driven by the head. See the publish path in GameClientShell.
+			const float fHeadYaw = (g_vtVRHeadAsMouse.GetFloat() > 0.0f)
+				? s.fHeadYawDeg * fD2R : 0.0f;
+			const float fC = (float)cos(fHeadYaw), fS = (float)sin(fHeadYaw);
+
+			if (nMode == 1 || nMode == 3)
+			{
+				// AT the hand, or offset FROM where the flat game put it.
+				LTVector vLocal = bAtHand ? LTVector(0.0f, 0.0f, 0.0f) : vNewPos;
+				vLocal.x += vHand.x * fC - vHand.z * fS;
+				vLocal.y += vHand.y;
+				vLocal.z += vHand.x * fS + vHand.z * fC;
+
+				g_pLTClient->SetObjectPos(m_hObject, &vLocal, LTTRUE);
+
+				// CAN THE NODES BE READ BACK HERE, right after placement?
+				//
+				// At PUBLISH time they come back (0,0,0) with the object at
+				// (0,0,0) too, so the view weapon draws at the map origin. The
+				// publish runs from Update() and the placement from
+				// UpdatePlaying, which is later - so the question is whether
+				// stashing the pose HERE and publishing it next frame would
+				// carry a real transform, or whether the engine has not posed
+				// the skeleton at this point either.
+				{
+					static float s_fSaidPose = -99999.0f;
+					HMODELNODE hN = INVALID_MODEL_NODE, hNext = INVALID_MODEL_NODE;
+					if (g_pLTClient->GetNextModelNode(m_hObject, hN, &hNext) == LT_OK)
+					{
+						LTransform tfw;
+						if (g_pLTClient->GetModelLT()->GetNodeTransform(
+								m_hObject, hNext, tfw, LTTRUE) == LT_OK
+							&& fabsf(tfw.m_Pos.x - s_fSaidPose) > 0.01f)
+						{
+							s_fSaidPose = tfw.m_Pos.x;
+							VRLog::Msg("  view weapon node0 AT PLACEMENT"
+								" %+.2f %+.2f %+.2f", tfw.m_Pos.x,
+								tfw.m_Pos.y, tfw.m_Pos.z);
+						}
+					}
+				}
+
+				// THE POSITION THAT IS ACTUALLY WRITTEN, which the line in the
+				// rotation block above is not: that one prints vSwung, and
+				// this block overwrites it. An A/B that moved the hand 10 cm
+				// showed no change at all in the log for exactly that reason,
+				// while the thing being measured was never printed.
+				//
+				// vHand is the hand's displacement from its resting pose in
+				// game units, so the two together say how far a centimetre of
+				// real movement travels on screen.
+				{
+					static float s_fSaidX = -99999.0f;
+					if (fabsf(vHand.x - s_fSaidX) > 0.05f)
+					{
+						s_fSaidX = vHand.x;
+						// WHICH OBJECT, because writing a position is not the
+						// same as moving the thing on screen. A hand offset of
+						// 167 units - the gun thrown right out of the frame -
+						// left the picture byte-identical, so this path has
+						// never reached what is drawn. The handle is what lets
+						// that be compared against the renderer's own list.
+						VRLog::Msg("  weapon POSITION written on object %08X"
+							" x %+.1f y %+.1f"
+							" z %+.1f  (authored %+.1f %+.1f %+.1f + hand"
+							" %+.1f %+.1f %+.1f units)",
+							(unsigned)(uintptr_t)m_hObject,
+							vLocal.x, vLocal.y, vLocal.z,
+							vNewPos.x, vNewPos.y, vNewPos.z,
+							vHand.x, vHand.y, vHand.z);
+					}
+				}
+			}
+		}
+	}
+
 	m_vFlashPos = m_vCamPos + vTemp;
+	// THE MUZZLE IS ON THE GUN IN THE HAND, NOT ON THE FACE. m_vFlashPos is
+	// the camera plus the authored camera-relative muzzle offset, which is
+	// where the retail gun's muzzle sits - in front of the eye. Every effect
+	// that starts at the muzzle takes it: the flash, the shell casings, and
+	// the tracer and impact FX, because it is written into the fire message
+	// for the server. With the gun placed at the hand they all came from the
+	// face (the bullet trail, shell casing and
+	// muzzle flash all came from roughly the middle of the face).
+	// The same re-basing the camera-relative effects use, on the same
+	// camera-relative point, against the last published gun pose.
+	if (g_vtVRGunAtHand.GetFloat() > 0.0f && VRShared::IsLive() && VRPrims_RebaseEverKnown())
+	{
+		const LTVector vWasFlash = m_vFlashPos;
+		// THE MUZZLE'S OFFSET FROM THE GUN IS vMuzzleOffset, IN GAME UNITS.
+		//
+		// m_vFlashOffset is vOffset + vMuzzleOffset + bob - the muzzle measured
+		// from the CAMERA - and it used to be handed to VRPrims_RebasePointLast,
+		// which is for the engine's compressed camera space and multiplies by
+		// fK (VRViewModelScale, 17). A ~14-unit authored offset came out ~240
+		// units away, laid along the gun's own axes: in the headset, 19 September,
+		// about 13 feet away to the right and near the ground.
+		//
+		// The gun is placed at vOffset and the muzzle at vOffset + vMuzzleOffset,
+		// so the difference is vMuzzleOffset alone; the bob applies to both and
+		// cancels. No scaling: it is already in the units the world is in.
+		// THE DRAWN BARREL END FIRST, and an authored offset only if the gun
+		// has not been through the node walk yet.
+		//
+		// The offset route has to agree with the gun's rotation, its published
+		// origin AND the K*S its nodes are scaled by, all at once. Getting the
+		// scale wrong put this thirteen feet out; getting the origin wrong left
+		// it a few inches low with the trail starting at the gun's body instead
+		// of its barrel. The drawn node has
+		// already been through all three.
+		// THE AUTHORED OFFSET, NOT THE DRAWN NODES. Reverted 19 September.
+		//
+		// Taking the muzzle from the gun's furthest drawn node looked better and
+		// is not general: it depends on the mesh having nodes SPREAD along the
+		// barrel, and they often do not. Measured at the desk with the arm nodes
+		// excluded - every one of the ak47's gun nodes sits at the SAME point,
+		// 0.0 units of spread, so the "barrel end" came back as the gun's own
+		// origin. The Sterling has 18.9 units of spread and worked, which is
+		// exactly why it passed here and failed on the tester's weapons.
+		//
+		// The tester judged the two builds: the authored offset sat a little lower
+		// than the gun; the drawn node sat below and behind the gun. The
+		// authored figure is per-weapon, always present, and was the better of
+		// the two, so it is what ships.
+		const LTVector vMuzzleFromGun = VRMirR(GetMuzzleOffset());	// Leftorium: the mirrored gun's muzzle
+		LTVector vDrawn;
+		bool bDrawn = false;
+		(void)vDrawn;
+		// AND SANITY-CHECK IT AGAINST THE GUN. The node walk is a frame behind,
+		// so the very first sample of a session - and the first after a level
+		// change - can still hold the previous set, which sits near the map
+		// origin: 64 units from the gun where every settled sample reads 18-24
+		// (measured at the desk, 19 September). A muzzle further from the gun's
+		// own origin than any gun is long is not a muzzle, and firing on that
+		// frame would throw the flash, the tracer and the casing across the map
+		// exactly the way the x17 bug did.
+		if (bDrawn)
+		{
+			// AGAINST THE CAMERA, not against the gun. Checking it against the
+			// gun's own pose looks right and catches nothing on the frame that
+			// matters: on the first frame of a session BOTH are stale and near
+			// the map origin, so they agree with each other while being
+			// thousands of units from the player (measured, 19 September - the
+			// gun-relative check passed a muzzle at 7 -22 26). The eye is the
+			// one position that is never stale. Nothing held in a hand is two
+			// hundred units from the face.
+			const LTVector vChk = vDrawn - m_vCamPos;
+			if (vChk.Mag() > 200.0f) bDrawn = false;
+		}
+		// THE SAME SPACE THE BULLETS ARE IN. This is the flash on the carpet by
+		// the fountain, in several copies - the tester watched it, photographed it,
+		// and was right about it.
+		//
+		// VRPrims_GunPointFromOffsetLast builds the muzzle in the DRAWN gun's
+		// frame, and that frame is published to our renderer rather than being
+		// world coordinates. A point from it lands somewhere fixed in the level
+		// and stays there, which is precisely what a flash lying on the floor in
+		// three or four copies looks like. The tracer had the identical fault
+		// and was fixed by leaving that space entirely.
+		//
+		// GetFireInfo's vFirePos is TRUE world - the bullets land where the player aims,
+		// so it has to be - and the authored per-weapon MuzzlePos goes in the
+		// basis it hands back. That is the same construction the tracer uses, so
+		// the flash and the trail now come out of one point by construction,
+		// which is the disagreement that started all of this.
+		{
+			// THE POSITION FROM THE SHOT, THE ROTATION FROM THE DRAWN GUN.
+			//
+			// The first version of this used GetFireInfo's basis for both, and
+			// The tester caught it at once: moving the gun at all left the flash
+			// wandering instead of travelling with it. The tester's clip shows the
+			// flash on the muzzle while the gun is level and off to one side as
+			// soon as it turns.
+			//
+			// Two different rotations were in play. The fire basis is the HAND's
+			// aim. The drawn gun uses GetModelRot(), which is the hand plus the
+			// per-weapon yaw/pitch/roll trims - autoexec.cfg carries
+			// VRWeaponPitch@ak47 -16.57 and VRWeaponRoll@ak47 among others. The
+			// two agree at one angle and separate at every other, so the flash
+			// swung away from the barrel exactly when the player moved.
+			//
+			// The flash has to sit on the gun you can SEE, so it takes the gun's
+			// own rotation. The position still comes from vFirePos, which is
+			// true world and is where the gun is drawn.
+			// VRFlashWorld picks which construction is used, so the two can be
+			// compared in one session instead of one build apart.
+			//   1  the drawn gun's own frame (VRPrims_GunPointFromOffsetLast)
+			//   0  the fire position plus the drawn gun's rotation
+			// The second tracks the gun while it is level and drifts as it
+			// turns, because the publish path anchors the gun's MESH onto the
+			// hand rather than its authored origin, so vFirePos is not the
+			// drawn gun's origin and the gap is per weapon.
+			if (!g_vtVRFlashWorld.IsInitted())
+				g_vtVRFlashWorld.Init(g_pLTClient, "VRFlashWorld", LTNULL, 1.0f);
+			if (!g_vtVRFlashTrace.IsInitted())
+				g_vtVRFlashTrace.Init(g_pLTClient, "VRFlashTrace", LTNULL, 0.0f);
+
+			LTVector vFU, vFR, vFF, vFirePos;
+			// THE PUBLISH'S OWN MUZZLE FIRST. VRPublishModels computes it from
+			// the gun pose it is establishing THIS frame, so it carries no
+			// one-frame lag; GunPointFromOffsetLast reads last frame's pose and
+			// lags by r * dTheta while the gun turns, which is the drift.
+			LTVector vMuzNow;
+			if (g_vtVRFlashWorld.GetFloat() > 0.0f && VRPrims_DrawnMuzzle(vMuzNow))
+			{
+				m_vFlashPos = vMuzNow;
+			}
+			else if (g_vtVRFlashWorld.GetFloat() > 0.0f)
+			{
+				m_vFlashPos = VRPrims_GunPointFromOffsetLast(vMuzzleFromGun);
+			}
+			else if (GetFireInfo(vFU, vFR, vFF, vFirePos))
+			{
+				// VRGunRot, not GetModelRot - the same fault as the tuner
+				// offsets had. This is the VRFlashWorld 0 arm and is not the
+				// default, but leaving a known-wrong frame in a fallback is how
+				// it gets found again the hard way.
+				m_vFlashPos = vFirePos
+							+ VRPrims_GunFrameToWorldLast(VRGunRot(), vMuzzleFromGun);
+			}
+			else
+			{
+				m_vFlashPos = VRPrims_GunPointFromOffsetLast(vMuzzleFromGun);
+			}
+		}
+
+		// ONE MUZZLE POINT FOR EVERYTHING. The muzzle FLASH object is placed in
+		// VRPublishModels from VRPrims_DrawnMuzzle, so it has to be told the
+		// same point the tracer uses or the two disagree - which is how the
+		// trail came out of the barrel while the muzzle flash did not.
+		VRPrims_NoteDrawnMuzzle(m_vFlashPos);
+		static int s_nSaidFlash = 0;
+		if (s_nSaidFlash < 4)
+		{
+			++s_nSaidFlash;
+			const LTVector vFromGun = m_vFlashPos - VRPrims_RebaseLast().vGunWorld;
+			VRLog::Msg("VRFlash: muzzle from the face (%.0f %.0f %.0f) to %s"
+				" (%.0f %.0f %.0f); %.1f units from the gun's origin"
+				" (authored offset would have been %.1f)",
+				vWasFlash.x, vWasFlash.y, vWasFlash.z,
+				bDrawn ? "THE DRAWN BARREL END" : "an authored offset (no node walk yet)",
+				m_vFlashPos.x, m_vFlashPos.y, m_vFlashPos.z,
+				vFromGun.Mag(), vMuzzleFromGun.Mag());
+		}
+	}
 
 
 	// Update the muzzle flash...
 
-	if (!m_bHaveSilencer)
+	if (!g_vtVRDebugNoSilencer.IsInitted())
+		g_vtVRDebugNoSilencer.Init(g_pLTClient, "VRDebugNoSilencer", NULL, 0.0f);
+	if (!m_bHaveSilencer || g_vtVRDebugNoSilencer.GetFloat() > 0.0f)
 	{
 		UpdateFlash(eState);
 	}
@@ -1365,7 +2216,10 @@ void CWeaponModel::CreateSilencer()
         g_pLTClient->SetObjectScale(m_hSilencerModel, &(pMod->vAttachScale));
 	}
 
-    m_bHaveSilencer = LTTRUE;
+	// AND THE FLAG FOLLOWS THE MODEL. Setting it true when the model failed to
+	// create is what leaves it stuck: RemoveMods used to clear it only when
+	// there was a model to delete.
+	m_bHaveSilencer = (m_hSilencerModel != LTNULL);
 }
 
 
@@ -1525,6 +2379,9 @@ void CWeaponModel::CreateScope()
 //
 // ----------------------------------------------------------------------- //
 
+// How long a first-person muzzle flash is held, at least. See UpdateFlash.
+static VarTrack g_vtVRFlashMinSec;
+
 void CWeaponModel::UpdateFlash(WeaponState eState)
 {
     uint32 dwFlags = g_pLTClient->GetObjectFlags(m_hObject);
@@ -1538,9 +2395,52 @@ void CWeaponModel::UpdateFlash(WeaponState eState)
     LTFLOAT fCurTime = g_pLTClient->GetTime();
     LTFLOAT fFlashDuration = m_pWeapon->pPVMuzzleFX->fDuration;
 
-	if ( fCurTime >= m_fFlashStartTime + fFlashDuration ||
+	// A FLASH SHORTER THAN THE PIPELINE CAN SEE IS A FLASH NOBODY SEES.
+	//
+	// NOLF's first-person muzzle effects last 5 to 7.5 milliseconds
+	// (ATTRIBUTES/FX.TXT: PV_P38MuzzFX 0.0075, PV_AK47MuzzFX 0.005). The
+	// retail renderer drew the frame it was switched on, so that was enough.
+	// This port publishes what it draws from a pass of its own, and a window
+	// that short falls between two publishes every time: measured on 11
+	// September, the flash was switched on 13 times in one run and the
+	// publish pass found its objects HIDDEN on all 900 frames it looked.
+	//
+	// So the flash is held for at least VRFlashMinSec. It still expires on
+	// its own, one frame later than it used to. 0 restores retail timing.
+	if (!g_vtVRFlashMinSec.IsInitted())
+		g_vtVRFlashMinSec.Init(g_pLTClient, "VRFlashMinSec", NULL, 0.033f);
+	const LTFLOAT fVRMin = g_vtVRFlashMinSec.GetFloat();
+	if (fVRMin > 0.0f && fFlashDuration < fVRMin) fFlashDuration = fVRMin;
+
+	// HELD LIT WHILE TUNING. The AK47's flash lasts five MILLISECONDS
+	// (PV_AK47MuzzFX 0.005 in ATTRIBUTES/FX.TXT) - VRFlashMinSec already
+	// stretches it to 33 ms just so the publish pass can see it at all. You
+	// cannot aim at something that brief, and tuning a thing you only glimpse
+	// is why this effect has been slow to tune. With VRFlashHold it stays lit
+	// continuously so the numpad can be watched against it.
+	// ONE SWITCH, NOT TWO. VRFlashTune 1 means the flash stays lit, full stop.
+	//
+	// This used to require VRFlashTune AND VRFlashHold together. In headset
+	// testing the persistent muzzle flash disappeared and only showed while
+	// actively shooting - which is precisely what this reads like when either
+	// one is not set, and there is no way to tell from inside the headset which
+	// of the two it was. Two switches for one behaviour is one switch too many
+	// on a tool whose whole job is to be watched while you aim at it.
+	//
+	// VRFlashHold survives as an override so the held flash can be turned OFF
+	// while still tuning (the Delete key), which is the only reason to want
+	// them separate: a few weapons draw a particle burst that the hold cannot
+	// keep on screen anyway.
+	const bool bHoldOff = g_vtVRFlashHold.IsInitted()
+					   && (g_vtVRFlashHold.GetFloat() <= 0.0f);
+	const bool bFlashHold = (g_vtVRFlashTune.GetFloat() > 0.0f)
+						 && !bHoldOff
+						 && (g_pGameClientShell->GetPlayerState() == PS_ALIVE);
+
+	if (!bFlashHold &&
+		( fCurTime >= m_fFlashStartTime + fFlashDuration ||
 		 g_pGameClientShell->GetPlayerState() != PS_ALIVE ||
-		 IsLiquid(g_pGameClientShell->GetCurContainerCode()) )
+		 IsLiquid(g_pGameClientShell->GetCurContainerCode()) ))
 	{
 		m_MuzzleFlash.Hide();
 	}
@@ -1549,8 +2449,99 @@ void CWeaponModel::UpdateFlash(WeaponState eState)
 		// Align the flash object to the direction the model is facing...
 
   		m_MuzzleFlash.Show();
-		m_MuzzleFlash.SetPos(m_vFlashPos, m_vFlashOffset);
-		m_MuzzleFlash.SetRot(GetModelRot());
+
+		// THE TUNER'S OFFSET, in the gun's own frame. Zero unless the player is tuning,
+		// so this is inert in a normal run. See CGameClientShell::VRFlashTuneUpdate.
+		// THE PER-WEAPON OFFSET, ALWAYS - not only while tuning. This is the
+		// residual after the coordinate-space fix, it differs per gun, and a
+		// correction that only applies with a debug cvar on is not a fix.
+		VRWeaponVarsInit();
+		LTVector vFlashPos = m_vFlashPos;
+		{
+			const int nWep = (int)GetWeaponId();
+			const float fR = s_vrFlashOffR.Get(nWep);
+			const float fU = s_vrFlashOffU.Get(nWep);
+			const float fF = s_vrFlashOffF.Get(nWep);
+			if (fR != 0.0f || fU != 0.0f || fF != 0.0f)
+			{
+				// VRGunRot, NOT GetModelRot - see the note on VRGunRot. This
+				// offset has to point down the BARREL, and GetModelRot points
+				// where the head is looking.
+				// ...AND THROUGH THE CAMERA BASIS, because VRGunRot is the
+				// hand's rotation in the camera object's space. See
+				// VRPrims_GunFrameToWorld: a trim rotated by VRGunRot alone
+				// stayed fixed in the world through a stick turn.
+				vFlashPos += VRPrims_GunFrameToWorldLast(VRGunRot(), LTVector(fR, fU, fF));
+			}
+		}
+		// VRFlashTrace 1: EVERY FRAME, so a drift that only happens while the gun
+		// is MOVING leaves a record.
+		//
+		// Two candidate causes have now been measured and ruled out - the
+		// one-frame pose lag is six millimetres at the muzzle at 94 deg/s, and
+		// the flash's stereo disparity is within 2-3% of the gun's. Neither is
+		// what the tester is describing, and the desk cannot reproduce it: at
+		// VRFlashOffF 0 the flash sits on the gun still AND swinging.
+		//
+		// So stop guessing at it from here. This logs the separation between
+		// the flash and the gun DECOMPOSED IN THE GUN'S OWN FRAME, next to the
+		// hand's yaw, once per frame. If the separation is constant while the
+		// yaw changes, the flash is welded to the gun and the fault is
+		// elsewhere; if it grows with the yaw RATE it is a lag; if it grows
+		// with the yaw ANGLE it is a pivot. Five seconds of the player swinging is
+		// four hundred samples and answers which.
+		if (g_vtVRFlashTrace.GetFloat() > 0.0f)
+		{
+			LTRotation rG = VRGunRot();
+			LTVector vGU, vGR, vGF;
+			g_pLTClient->GetRotationVectors(&rG, &vGU, &vGR, &vGF);
+			// THE GUN'S WORLD POSITION, NOT THE OBJECT'S.
+			//
+			// The first version of this read m_hObject's position, and the
+			// separation came out at TWO THOUSAND units. That is not a drift,
+			// it is the whole problem in one number: the view weapon carries
+			// FLAG_REALLYCLOSE, so its object position is CAMERA-RELATIVE
+			// (vSwung, a handful of units), while m_vFlashPos is a WORLD point.
+			// Subtracting one from the other measures the distance from the map
+			// origin and calls it an offset.
+			//
+			// The re-base knows where the gun really is - it is the value the
+			// renderer draws the gun at - so that is the only honest comparison.
+			const LTVector vGunPos = VRPrims_RebaseLast().vGunWorld;
+			const LTVector d = vFlashPos - vGunPos;
+			float fYawNow = 0.0f;
+			if (VRShared::IsLive())
+			{
+				const VRSharedState& s = VRShared::State();
+				fYawNow = s.Hands[1].fYawDeg;
+			}
+			static float s_fPrevYaw = 0.0f;
+			const float fRate = (fYawNow - s_fPrevYaw) * 90.0f;	// deg/s at 90 fps
+			s_fPrevYaw = fYawNow;
+			VRLog::Msg("VRFlashTrace: yaw %+7.2f rate %+8.1f deg/s | flash-gun"
+					   " r %+7.2f u %+7.2f f %+7.2f | len %6.2f",
+					   fYawNow, fRate,
+					   d.Dot(vGR), d.Dot(vGU), d.Dot(vGF), d.Mag());
+		}
+
+		{
+			static int s_nSaidFP = 0;
+			if (s_nSaidFP < 6)
+			{
+				++s_nSaidFP;
+				LTVector vC(0,0,0);
+				HOBJECT hC = g_pGameClientShell->GetCamera();
+				if (hC) g_pLTClient->GetObjectPos(hC, &vC);
+				const LTVector d = vFlashPos - vC;
+				VRLog::Msg("VRFlashWhere: flash at %.0f %.0f %.0f, camera at"
+						   " %.0f %.0f %.0f - %.0f units apart (%.1f ft)",
+						   vFlashPos.x, vFlashPos.y, vFlashPos.z,
+						   vC.x, vC.y, vC.z, d.Mag(), d.Mag()/18.0f);
+			}
+		}
+		m_MuzzleFlash.SetPos(vFlashPos, m_vFlashOffset);
+		// The flash points down the BARREL, not down the player's gaze.
+		m_MuzzleFlash.SetRot(VRAimRot());
 		m_MuzzleFlash.Update();
 	}
 }
@@ -1600,6 +2591,100 @@ LTVector CWeaponModel::GetModelPos() const
 //	PURPOSE:	Get the rotation of the weapon model
 //
 // ----------------------------------------------------------------------- //
+
+// THE GUN'S ACTUAL ROTATION, WHICH GetModelRot IS NOT.
+//
+// GetModelRot returns m_rCamRot - the CAMERA's rotation - and the code below it
+// that reads the object's own rotation is unreachable, sitting after an early
+// return. That is fine for what retail used it for and wrong for anything that
+// has to sit on the gun in VR, because in VR the gun carries the HAND's
+// rotation and the camera does not.
+//
+// Measured with VRFlashTrace through a 45-degree sweep: the flash-to-gun
+// distance stayed EXACTLY constant at 16.93 units - the ak47's authored muzzle
+// distance, so the muzzle itself is welded on correctly - while the direction
+// rotated with the yaw, from (r -0.96, f +16.61) at yaw +3 to (r -8.49, f
+// +14.31) at yaw +39. A constant length with a rotating direction is an offset
+// expressed in the wrong frame.
+//
+// That is a report that the flash does not travel with the gun,
+// and that the further out it is pushed the more it gets away in a swing:
+// the player's tuned VRFlashOffF is applied along the CAMERA's forward, so it points
+// where the player's head looks rather than down the barrel, and the further out the player
+// pushes it the further it slides. An angular error at radius r displaces by
+// r * theta, which is exactly the further-out-is-worse behaviour.
+LTVector CWeaponModel::VRFlashOffset() const
+{
+	VRWeaponVarsInit();
+	const int nW = (int)m_nWeaponId;
+	return VRMirR(LTVector(s_vrFlashOffR.Get(nW), s_vrFlashOffU.Get(nW), s_vrFlashOffF.Get(nW)));
+}
+
+// ON TOP OF the flash's offset, never instead of it - see the note by the
+// declarations. Zero until one is tuned, so nothing changes until asked.
+LTVector CWeaponModel::VRGripOffset() const
+{
+	VRWeaponVarsInit();
+	const int nW = (int)m_nWeaponId;
+	return VRMirR(LTVector(s_vrGripOffR.Get(nW), s_vrGripOffU.Get(nW), s_vrGripOffF.Get(nW)));
+}
+
+LTVector CWeaponModel::VRLensOffset() const
+{
+	VRWeaponVarsInit();
+	const int nW = (int)m_nWeaponId;
+	return VRMirR(LTVector(s_vrLensOffR.Get(nW), s_vrLensOffU.Get(nW), s_vrLensOffF.Get(nW)));
+}
+
+float CWeaponModel::VRLensRadius() const
+{
+	VRWeaponVarsInit();
+	return s_vrLensRad.Get((int)m_nWeaponId);
+}
+
+LTVector CWeaponModel::VRTracerOffset() const
+{
+	VRWeaponVarsInit();
+	const int nW = (int)m_nWeaponId;
+	return VRMirR(LTVector(s_vrTracerOffR.Get(nW), s_vrTracerOffU.Get(nW), s_vrTracerOffF.Get(nW)));
+}
+
+LTVector CWeaponModel::VRShellOffset() const
+{
+	VRWeaponVarsInit();
+	const int nW = (int)m_nWeaponId;
+	return VRMirR(LTVector(s_vrShellOffR.Get(nW), s_vrShellOffU.Get(nW), s_vrShellOffF.Get(nW)));
+}
+
+float CWeaponModel::VRWeaponScale() const
+{
+	VRWeaponVarsInit();
+	return s_vrWeaponScale.Get(m_nWeaponId);
+}
+
+LTRotation CWeaponModel::VRGunRot() const
+{
+	LTRotation rRot;
+	rRot.Init();
+	if (m_hObject) g_pLTClient->GetObjectRotation(m_hObject, &rRot);
+	return rRot;
+}
+
+LTRotation CWeaponModel::VRAimRot() const
+{
+	LTRotation rRot = VRGunRot();
+	float fYawDeg = 0.0f, fPitchDeg = 0.0f;
+	VRAimTotal(m_nWeaponId, fYawDeg, fPitchDeg);
+	const float fY =  fYawDeg   * 0.01745329f * (VRShared::SwapHands() ? -1.0f : 1.0f);	// Leftorium: mirrored
+	const float fP = -fPitchDeg * 0.01745329f;
+	if (fY == 0.0f && fP == 0.0f) return rRot;
+	// About the gun's OWN axes: same order and signs as the model's ANGLE.
+	LTRotation rTrim;
+	rTrim.Init();
+	g_pLTClient->EulerRotateY(&rTrim, fY);
+	g_pLTClient->EulerRotateX(&rTrim, fP);
+	return rRot * rTrim;
+}
 
 LTRotation CWeaponModel::GetModelRot() const
 {
@@ -1824,6 +2909,12 @@ WeaponState CWeaponModel::Fire(LTBOOL bUpdateAmmo)
 
     LTBOOL bInfiniteAmmo = (g_bInfiniteAmmo || m_pWeapon->bInfiniteAmmo);
 	int nAmmo = bInfiniteAmmo ? INFINITE_AMMO_AMOUNT : pStats->GetAmmoCount(m_nAmmoId);
+	{
+		static int s_nFireSaid = 0;
+		if (s_nFireSaid++ < 200)
+			VRLog::Msg("VRTrigger: FIRE - weapon %d ammo %d%s", (int)m_nWeaponId, nAmmo,
+					   nAmmo > 0 ? "" : "  <- NO AMMO, dry fire");
+	}
 
 	// If this weapon uses ammo, make sure we have ammo...
 
@@ -2659,6 +3750,16 @@ void CWeaponModel::SendFireMsg()
 		// Do client-side firing...
 
 		ClientFire(wp.vPath, vFirePos);
+
+		// A SHOT YOU FEEL. One pulse in the firing hand per shot: a gun kicks
+		// harder and longer than a fist or a knife. Headset testing found the
+		// shots felt as if they had no force. VRHaptics 0 turns it off.
+		if (g_vtVRHaptics.GetFloat() > 0.0f)
+		{
+			WEAPON* pHW = g_pWeaponMgr->GetWeapon(m_nWeaponId);
+			const bool bMelee = (pHW && pHW->nRange < 300);
+			VRShared::Haptic(1, bMelee ? 0.5f : 1.0f, bMelee ? 35.0f : 70.0f);
+		}
 	}
 
 
@@ -2722,6 +3823,190 @@ LTBOOL CWeaponModel::GetFireInfo(LTVector & vU, LTVector & vR, LTVector & vF,
 		g_pLTClient->GetObjectPos(hCamera, &vFirePos);
 		g_pLTClient->GetObjectRotation(hCamera, &rRot);
 	    g_pLTClient->GetRotationVectors(&rRot, &vU, &vR, &vF);
+
+		// SHOOT WHERE THE HAND POINTS, NOT WHERE THE HEAD LOOKS.
+		//
+		// This function is the single choke point for the aim: everything
+		// downstream - the projectile, the impact FX, the bullet holes, what
+		// the server is told - is built from the vU/vR/vF that leave here. So
+		// this is the one place the hand has to reach, and moving the weapon
+		// MODEL was never going to do it.
+		//
+		// Composed the same way the weapon's position is: take the hand's
+		// direction RELATIVE TO THE HEAD, then express it in the camera's
+		// basis. That is explicit vector arithmetic rather than LTRotation
+		// composition, deliberately - the two conventions have cost this
+		// project a reconstruction before, and this way there is nothing to be
+		// wrong about.
+		//
+		// Falls through to the camera untouched when there is no host, when
+		// the controller is not tracking, or when the switch is off, so a flat
+		// run is unaffected.
+		if (g_vtVRHandFire.GetFloat() > 0.0f && VRShared::IsLive())
+		{
+			const VRSharedState& s = VRShared::State();
+			const VRHandState&   h = s.Hands[1];		// right hand
+			if (h.nActive)
+			{
+				const float fD2R = 0.01745329f;
+				// ABSOLUTE, NOT RELATIVE TO THE HEAD, and this is the whole
+				// difference between shooting where you point and shooting
+				// where the mouse last was.
+				//
+				// The weapon MODEL subtracts the head, correctly: it is placed
+				// in camera space and the renderer applies the head pose on top
+				// of that, so subtracting avoids counting the head twice.
+				//
+				// The FIRE direction is not in camera space. It is built from
+				// the camera OBJECT's rotation, and that object does not carry
+				// the head pose at all - measured: with the headset pitched 25
+				// degrees down the camera forward came back +0.000 in Y, dead
+				// horizontal. The head is applied downstream, in the renderer,
+				// to the VIEW only.
+				//
+				// So there is no head in the basis to double-count, and
+				// subtracting one removes the thing that makes looking and
+				// pointing agree: turn your head 30 degrees, point your hand
+				// down your own gaze, and the relative angle is zero - it would
+				// shoot straight ahead while you look sideways.
+				//
+				// It also means AIM HAS NEVER FOLLOWED THE HEAD in this port,
+				// with or without a controller. Shots have always gone where
+				// the flat game's aim pointed.
+				const float fYaw   = -h.fYawDeg   * fD2R;
+				const float fPitch = -h.fPitchDeg * fD2R;
+
+				// THE SHOT FOLLOWS THE DRAWN BARREL. The per-weapon ANGLE rotates
+				// the model in the hand; without it here the bullet, the reticle,
+				// the beam and the burst kept the HAND's line while the barrel sat
+				// at the tuned angle - the Contender, 22 degrees apart, in headset
+				// testing on 21 September. Same terms, same signs as the model's
+				// rotation; a gun with no angle is unchanged. VRAimFollowsBarrel 0
+				// aims the hand alone.
+				VRWeaponVarsInit();
+				static VarTrack s_vtAimBarrel;
+				if (!s_vtAimBarrel.IsInitted()) s_vtAimBarrel.Init(g_pLTClient, "VRAimFollowsBarrel", LTNULL, 1.0f);
+				const float fAimOn    = (s_vtAimBarrel.GetFloat() > 0.0f) ? 1.0f : 0.0f;
+				float fTrimYawDeg = 0.0f, fTrimPitchDeg = 0.0f;
+				VRAimTotal(m_nWeaponId, fTrimYawDeg, fTrimPitchDeg);
+				const float fAimYaw   =  s_vrAngleYaw  .Get(m_nWeaponId) * fD2R * fAimOn
+				                      +  fTrimYawDeg * fD2R;
+				const float fAimPitch = -s_vrAnglePitch.Get(m_nWeaponId) * fD2R * fAimOn
+				                      -  fTrimPitchDeg * fD2R;
+
+				LTRotation rHand;
+				rHand.Init();
+				g_pLTClient->EulerRotateY(&rHand, fYaw + fAimYaw);
+				g_pLTClient->EulerRotateX(&rHand, fPitch + fAimPitch);
+
+				LTVector vHU, vHR, vHF;
+				g_pLTClient->GetRotationVectors(&rHand, &vHU, &vHR, &vHF);
+
+				const LTVector vCU = vU, vCR = vR, vCF = vF;
+				vF = vCR * vHF.x + vCU * vHF.y + vCF * vHF.z;
+				vU = vCR * vHU.x + vCU * vHU.y + vCF * vHU.z;
+				vR = vCR * vHR.x + vCU * vHR.y + vCF * vHR.z;
+
+				// THE RAY STARTS AT THE HAND, NOT THE EYE.
+				//
+				// The direction was the hand's and the ORIGIN was still the
+				// camera's, so the ray ran parallel to the barrel from a point
+				// 40-odd centimetres above it (the log: the gun's centre sits
+				// -25 units, 43 cm, below the eye). A parallel line 43 cm up
+				// lands 43 cm above where the barrel points, at every range,
+				// and the dot went with it. In the headset the aim dot sat too
+				// high and not where the barrel pointed - while the
+				// drawn barrel's pitch tracked the controller's within a
+				// degree (GUN DIR lines: hand +24.3 barrel +23.6, -11.6 and
+				// -11.8, +18.0 and +17.9). Not an angle error; a parallax.
+				//
+				// The origin is where the gun is drawn: the hand's offset from
+				// the head, in the same basis and through the same two scales
+				// the placement uses (VRHandPosScale units per metre in the
+				// weapon's space, times VRViewModelScale into the world), so
+				// the ray and the picture cannot drift apart. Only with the
+				// gun at the hand; the authored-offset model keeps the eye.
+				LTVector vOrgShift(0.0f, 0.0f, 0.0f);
+				if (g_vtVRGunAtHand.GetFloat() > 0.0f)
+				{
+					const float U = (g_vtVRHandPosScale.GetFloat() > 0.0f)
+						? g_vtVRHandPosScale.GetFloat() : 3.0f;
+					const float K = (g_vtVRViewModelScale.GetFloat() > 0.1f)
+						? g_vtVRViewModelScale.GetFloat() : 17.0f;
+					const float hx =  (h.fPosX - s.fHeadPosX) * U * K;
+					const float hy =  (h.fPosY - s.fHeadPosY) * U * K;
+					const float hz = -(h.fPosZ - s.fHeadPosZ) * U * K;	// Z flip
+					vOrgShift = vCR * hx + vCU * hy + vCF * hz;
+
+					// ...BUT NEVER FROM INSIDE A WALL. At a window the hand
+					// and the rifle reach past the sill into the wall, and a
+					// ray that starts inside the wall hits it at once: the dot
+					// sat on the open window and nothing across the street
+					// could be aimed at. Headset testing, Morocco's sniping
+					// section: the red dot stuck on the window. The segment from
+					// the eye to the hand is tested first; if it meets
+					// anything solid the origin stops just short of it, so
+					// the ray still runs down the barrel's line but begins in
+					// open air.
+					{
+						ClientIntersectQuery iq;
+						ClientIntersectInfo  ii;
+						memset(&iq, 0, sizeof(iq));
+						HLOCALOBJ hPl = g_pLTClient->GetClientObject();
+						HOBJECT hFilt[] = { hPl, m_hObject, LTNULL };
+						VEC_COPY(iq.m_From, vFirePos);
+						LTVector vTo = vFirePos + vOrgShift;
+						VEC_COPY(iq.m_To, vTo);
+						iq.m_Flags     = INTERSECT_OBJECTS | IGNORE_NONSOLID;
+						iq.m_FilterFn  = ObjListFilterFn;
+						iq.m_pUserData = hFilt;
+						if (g_pLTClient->IntersectSegment(&iq, &ii))
+						{
+							// FROM THE EYE, THEN. Stopping short of the wall was not
+							// enough: at a window the hand is BELOW the sill, so an
+							// origin two units in front of the wall is two units in
+							// front of the wall under the window, and the ray along
+							// the barrel goes straight into it - the dot sat on the
+							// glass of an open window (run 12). The eye is above the
+							// sill by construction (you are looking out), so when the
+							// hand is buried the ray runs from the eye along the
+							// barrel's direction, the way it did before the parallax
+							// fix. A little high at the muzzle, and never in a wall.
+							static int s_nSaidWall = 0;
+							if (s_nSaidWall++ % 90 == 0)
+								VRLog::Msg("VR fire: the hand is past a wall (%.1f of %.1f units) - firing from the eye",
+									(ii.m_Point - vFirePos).Mag(), vOrgShift.Mag());
+							vOrgShift.Init();
+						}
+					}
+					vFirePos += vOrgShift;
+				}
+
+				// WHERE IT ENDED UP, on every change of hand angle. A shot
+				// going somewhere unexpected is the hardest thing in this
+				// project to see from a screenshot - the bullet is gone before
+				// the frame is captured - so the direction is written down
+				// instead of photographed.
+				// Throttled to four a second: see the note in UpdateWeaponPosition.
+				// The half-degree test is not a cap when the hand never stops.
+				static float  s_fSaidFire = -9999.0f;
+				static double s_fSaidFireAt = -1.0;
+				const double fNowFire = g_pLTClient->GetTime();
+				if (fabsf(h.fYawDeg - s_fSaidFire) > 0.5f
+					&& (fNowFire - s_fSaidFireAt) > 0.25)
+				{
+					s_fSaidFire = h.fYawDeg;
+					s_fSaidFireAt = fNowFire;
+					VRLog::Msg("VR fire: hand y%+.1f p%+.1f (head y%+.1f p%+.1f)"
+						" -> dir %+.3f %+.3f %+.3f, camera would have been"
+						" %+.3f %+.3f %+.3f | origin moved off the eye by"
+						" %+.1f %+.1f %+.1f units",
+						h.fYawDeg, h.fPitchDeg, s.fHeadYawDeg, s.fHeadPitchDeg,
+						vF.x, vF.y, vF.z, vCF.x, vCF.y, vCF.z,
+						vOrgShift.x, vOrgShift.y, vOrgShift.z);
+				}
+			}
+		}
 	}
 	else
 	{

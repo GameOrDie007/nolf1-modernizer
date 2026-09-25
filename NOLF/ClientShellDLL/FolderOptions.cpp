@@ -37,6 +37,10 @@ LTBOOL CFolderOptions::Build()
 	AddTextItem(IDS_PERFORMANCE,	FOLDER_CMD_PERFORMANCE,	IDS_HELP_PERFORMANCE);
 	AddTextItem(IDS_HUD,			FOLDER_CMD_HUD,			IDS_HELP_HUD);
 	AddTextItem(IDS_JUKEBOX,			FOLDER_CMD_JUKEBOX,		IDS_HELP_JUKEBOX);
+	// A literal string: there is no IDS_ for this and adding one is a
+	// CRes.dll rebuild. helpID 0 leaves the help line blank rather than
+	// printing whatever string 0 happens to be.
+	AddTextItem("VR",				FOLDER_CMD_VR,			0);
 
 	// Make sure to call the base class
 	if (! CBaseFolder::Build()) return LTFALSE;
@@ -82,6 +86,11 @@ uint32 CFolderOptions::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwPar
 	case FOLDER_CMD_JUKEBOX:
 		{
 			m_pFolderMgr->SetCurrentFolder(FOLDER_ID_JUKEBOX);
+			break;
+		}
+	case FOLDER_CMD_VR:
+		{
+			m_pFolderMgr->SetCurrentFolder(FOLDER_ID_VR);
 			break;
 		}
 	default:

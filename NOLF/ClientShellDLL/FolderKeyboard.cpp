@@ -53,6 +53,12 @@ LTBOOL CFolderKeyboard::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_NORMALTURN, IDS_FASTTURN, IDS_LOOKUP, IDS_MOUSE_LOOKSPRING, IDS_VEHICLETURN };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	//turn speed
 	CSliderCtrl *pSlider = AddSlider(IDS_NORMALTURN, IDS_HELP_NORMALTURN, kGap, kWidth, &m_nNormalTurn);

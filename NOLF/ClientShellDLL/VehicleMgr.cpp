@@ -15,6 +15,9 @@
 #include "VarTrack.h"
 #include "MsgIDs.h"
 #include "CharacterFX.h"
+#include "VRShared.h"
+#include "VRLog.h"
+#include "InterfaceMgr.h"
 
 #define MOTORCYCLE_SLIDE_TO_STOP_TIME	3.0f
 #define SNOWMOBILE_SLIDE_TO_STOP_TIME	5.0f
@@ -110,6 +113,63 @@ VarTrack	g_vtVehicleTurnScaleEnd;
 VarTrack	g_vtVehicleMouseMinYawBuffer;
 VarTrack	g_vtVehicleMouseMaxYawBuffer;
 
+// VR PHYSICAL STEERING. The game steers a vehicle through a virtual wheel:
+// the mouse ACCUMULATES into m_fYawDiff, capped at VehicleMouseMaxYawBuffer
+// degrees either side, and the turn rate scales with how far the wheel is
+// from centre. With two tracked controllers the wheel does not need to be
+// accumulated - the handlebar IS the line between the hands, and its angle
+// in the horizontal plane is the wheel position, set directly every frame.
+//
+//   VRVehicleSteer        0 off, 1 while BOTH grips are held (the gesture of
+//                         taking the bars), 2 whenever both hands track
+//   VRVehicleSteerGain    bar degrees to wheel degrees. 1: a 45 degree bar
+//                         is full lock, which is about what real bars travel
+//   VRVehicleSteerSmooth  seconds; a one-pole filter on the bar angle so
+//                         hand jitter does not become a twitching sled
+// VR ANALOG STICK STEERING. The stick reached a vehicle as left/right key
+// presses, and the game's keyboard path swings the wheel at ONE fixed rate
+// however far the stick is pushed - digital steering. With this on, the
+// stick's deflection past the dead zone SETS the wheel, as the bars do:
+// half a push is half lock. Centred stick, straight wheel.
+//   VRVehicleStickAnalog  1 on (default), 0 the game's keyboard steering
+//   VRVehicleStickCurve   response exponent past the dead zone. 1 is linear,
+//                         which in a headset read as far too sensitive near
+//                         centre; 2 (default) gives half a push a quarter
+//                         of lock, and full is still full lock
+VarTrack	g_vtVRVehicleStickAnalog;
+VarTrack	g_vtVRVehicleStickCurve;
+// VRVehicleStickGain: the stick's share of full lock at full push. 1 reaches
+// full lock; 0.5 (default) was asked for after the curve alone still read as
+// twice too sensitive. The bars keep the whole range.
+VarTrack	g_vtVRVehicleStickGain;
+// VRVehicleMinWheel: degrees of bar before a turn starts, while the stick or
+// the hands set the wheel. The game's own 5 (VehicleMouseMinYawBuffer) is a
+// dead band for an accumulated mouse wheel; under the stick's dead zone,
+// curve and gain it left the first ~60% of the stick doing nothing and then
+// a turn that switched on. 1 lets it start as soon as the bars move; the
+// game's own rate curve already eases the first degrees in.
+VarTrack	g_vtVRVehicleMinWheel;
+// VRWheelieOnce 1: in a headset, one wheelie per press of jump. The game
+// pops one on every update jump is held, so a held button stacked camera
+// tilts into a bounce.
+VarTrack	g_vtVRWheelieOnce;
+extern VarTrack g_vtVRStickDeadzone;		// GameClientShell.cpp
+VarTrack	g_vtVRVehicleSteer;
+VarTrack	g_vtVRVehicleSteerGain;
+VarTrack	g_vtVRVehicleSteerSmooth;
+
+// THE CONTROLLER COULD NOT DRIVE A VEHICLE. CMoveMgr reads every command
+// through VRCmdOn - the engine's key state OR the controller's held mask -
+// but this file asked the engine alone, so on a snowmobile the stick that
+// had just walked the player up to it did nothing: no throttle, no brake,
+// no turn. Found at the desk on 16 September, mounting T10S01's sled with
+// the fake host: "physics model -> SNOWMOBILE" and then a yaw that never
+// moved because the sled never did.
+static LTBOOL VehCmdOn(int nCmd)
+{
+	return g_pLTClient->IsCommandOn(nCmd) || VRShared::CommandOn(nCmd);
+}
+
 VarTrack	g_vtVehicleMaxHeadOffsetX;
 VarTrack	g_vtVehicleMaxHeadOffsetY;
 VarTrack	g_vtVehicleMaxHeadOffsetZ;
@@ -168,6 +228,10 @@ CVehicleMgr::CVehicleMgr()
     m_bVehicleAtMaxSpeed = LTFALSE;
 
 	m_fHandlebarRoll = 0.0f;
+	m_fVRBar = 0.0f;
+	m_fVRStick = 0.0f;
+	m_bVRJumpWas = LTFALSE;
+	m_bVRSteering = LTFALSE;
 
 	InitWorldData();
 }
@@ -279,6 +343,15 @@ LTBOOL CVehicleMgr::Init()
 	g_vtVehicleMouseMinYawBuffer.Init(g_pLTClient, "VehicleMouseMinYawBuffer", NULL, 5.0f);
 	g_vtVehicleMouseMaxYawBuffer.Init(g_pLTClient, "VehicleMouseMaxYawBuffer", NULL, 45.0f);
 
+	g_vtVRVehicleSteer.Init(g_pLTClient, "VRVehicleSteer", NULL, 1.0f);
+	g_vtVRVehicleStickAnalog.Init(g_pLTClient, "VRVehicleStickAnalog", NULL, 1.0f);
+	g_vtVRVehicleStickCurve.Init(g_pLTClient, "VRVehicleStickCurve", NULL, 2.0f);
+	g_vtVRVehicleStickGain.Init(g_pLTClient, "VRVehicleStickGain", NULL, 0.5f);
+	g_vtVRVehicleMinWheel.Init(g_pLTClient, "VRVehicleMinWheel", NULL, 1.0f);
+	g_vtVRWheelieOnce.Init(g_pLTClient, "VRWheelieOnce", NULL, 1.0f);
+	g_vtVRVehicleSteerGain.Init(g_pLTClient, "VRVehicleSteerGain", NULL, 1.0f);
+	g_vtVRVehicleSteerSmooth.Init(g_pLTClient, "VRVehicleSteerSmooth", NULL, 0.08f);
+
 	g_vtVehicleMaxHeadOffsetX.Init(g_pLTClient, "VehicleHeadMaxOffsetX", NULL, 0.0f);
 	g_vtVehicleMaxHeadOffsetY.Init(g_pLTClient, "VehicleHeadMaxOffsetY", NULL, 0.0f);
 	g_vtVehicleMaxHeadOffsetZ.Init(g_pLTClient, "VehicleHeadMaxOffsetZ", NULL, 0.0f);
@@ -337,6 +410,10 @@ void CVehicleMgr::InitWorldData()
 
 	m_vHeadOffset.Init();
 	m_fHandlebarRoll		= 0.0f;
+	m_fVRBar				= 0.0f;
+	m_fVRStick				= 0.0f;
+	m_bVRJumpWas				= LTFALSE;
+	m_bVRSteering			= LTFALSE;
 	m_fHeadYaw				= 0.0f;
 }
 
@@ -452,58 +529,58 @@ void CVehicleMgr::UpdateMotorcycleControlFlags()
 {
 	// Determine what commands are currently on...
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_RUN) ^ g_pInterfaceMgr->GetSettings()->RunLock())
+	if (VehCmdOn(COMMAND_ID_RUN) ^ g_pInterfaceMgr->GetSettings()->RunLock())
 	{
 		m_dwControlFlags |= BC_CFLG_RUN;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_JUMP))
+	if (VehCmdOn(COMMAND_ID_JUMP))
 	{
 		m_dwControlFlags |= BC_CFLG_JUMP;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_FORWARD))
+	if (VehCmdOn(COMMAND_ID_FORWARD))
 	{
 		m_dwControlFlags |= BC_CFLG_FORWARD;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_REVERSE))
+	if (VehCmdOn(COMMAND_ID_REVERSE))
 	{
 		m_dwControlFlags |= BC_CFLG_REVERSE;
 		m_dwControlFlags &= ~BC_CFLG_FORWARD;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_LEFT))
+	if (VehCmdOn(COMMAND_ID_LEFT))
 	{
 		m_dwControlFlags |= BC_CFLG_LEFT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_RIGHT))
+	if (VehCmdOn(COMMAND_ID_RIGHT))
 	{
 		m_dwControlFlags |= BC_CFLG_RIGHT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE))
+	if (VehCmdOn(COMMAND_ID_STRAFE))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE_RIGHT))
+	if (VehCmdOn(COMMAND_ID_STRAFE_RIGHT))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE_RIGHT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE_LEFT))
+	if (VehCmdOn(COMMAND_ID_STRAFE_LEFT))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE_LEFT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_FIRING))
+	if (VehCmdOn(COMMAND_ID_FIRING))
 	{
 		m_dwControlFlags |= BC_CFLG_FIRING;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_ALT_FIRING))
+	if (VehCmdOn(COMMAND_ID_ALT_FIRING))
 	{
 		m_dwControlFlags |= BC_CFLG_ALT_FIRING;
 	}
@@ -1219,6 +1296,10 @@ LTBOOL CVehicleMgr::PreSetPhysicsModel(PlayerPhysicsModel eModel)
 
 	m_vHeadOffset.Init();
 	m_fHandlebarRoll = 0.0f;
+	m_fVRBar = 0.0f;
+	m_fVRStick = 0.0f;
+	m_bVRJumpWas = LTFALSE;
+	m_bVRSteering = LTFALSE;
 	m_fHeadYaw = 0.0f;
 	m_fYawDiff = 0.0f;
 	m_fYawDelta	= 0.0f;
@@ -1318,6 +1399,20 @@ void CVehicleMgr::SetPhysicsModel(PlayerPhysicsModel eModel, LTBOOL bDoPreSet)
 	if (bDoPreSet && !PreSetPhysicsModel(eModel)) return;
 
 	m_ePPhysicsModel = eModel;
+
+	// The desk harness cannot see a vehicle; this line is how it knows the
+	// player is on one.
+	VRLog::Msg("Vehicle: physics model -> %s",
+		eModel == PPM_MOTORCYCLE ? "MOTORCYCLE" :
+		eModel == PPM_SNOWMOBILE ? "SNOWMOBILE" : "normal");
+	// THE CONTROLS, ONCE PER RIDE. The game's own tip names keyboard keys; in
+	// the headset the vehicle is driven with both hands, and nothing said so.
+	if ((eModel == PPM_MOTORCYCLE || eModel == PPM_SNOWMOBILE) && VRShared::IsLive()
+		&& g_pInterfaceMgr && g_pInterfaceMgr->GetMessageMgr())
+	{
+		char szTip[] = "Hold both grips to take the handlebars and steer. Right trigger: throttle. Left trigger: brake.";
+		g_pInterfaceMgr->GetMessageMgr()->AddLine(szTip);
+	}
 
  	switch (eModel)
 	{
@@ -1508,6 +1603,10 @@ void CVehicleMgr::SetNormalPhysicsModel()
 
 	m_vHeadOffset.Init();
 	m_fHandlebarRoll = 0.0f;
+	m_fVRBar = 0.0f;
+	m_fVRStick = 0.0f;
+	m_bVRJumpWas = LTFALSE;
+	m_bVRSteering = LTFALSE;
 	m_fHeadYaw = 0.0f;
 	m_fYawDiff = 0.0f;
 	m_fYawDelta	= 0.0f;
@@ -2037,6 +2136,15 @@ void CVehicleMgr::UpdateVehicleSounds()
 		{
 			bWheely = LTTRUE;
 		}
+	}
+
+	// ONE WHEELIE PER PRESS in a headset (VRWheelieOnce): held, the game
+	// popped one every update and the stacked camera tilts bounced.
+	{
+		const LTBOOL bJumpNow = (m_dwControlFlags & BC_CFLG_JUMP) ? LTTRUE : LTFALSE;
+		if (bWheely && m_bVRJumpWas && VRShared::IsLive() && g_vtVRWheelieOnce.GetFloat() > 0.0f)
+			bWheely = LTFALSE;
+		m_bVRJumpWas = bJumpNow;
 	}
 
 	LTBOOL bIsDone = LTFALSE;
@@ -3073,7 +3181,8 @@ void CVehicleMgr::CalculateVehicleRotation(LTVector & vPlayerPYR,
 	// If we're playing the select or deselect anis, don't allow us to turn...
 
 	LTBOOL bIsDone = LTFALSE;
-	if (IsCurVehicleAni("Deselect", bIsDone) || IsCurVehicleAni("Select", bIsDone))
+	const LTBOOL bAniLock = (IsCurVehicleAni("Deselect", bIsDone) || IsCurVehicleAni("Select", bIsDone));
+	if (bAniLock)
 	{
 		fYawDelta = 0.0f;
 		m_bKeyboardTurning = LTFALSE;
@@ -3081,6 +3190,91 @@ void CVehicleMgr::CalculateVehicleRotation(LTVector & vPlayerPYR,
 		m_dwControlFlags &= ~BC_CFLG_LEFT;
 		m_dwControlFlags &= ~BC_CFLG_STRAFE_RIGHT;
 		m_dwControlFlags &= ~BC_CFLG_RIGHT;
+	}
+
+	// VR PHYSICAL STEERING. While the hands are on the bars the wheel is SET
+	// from the bar angle rather than accumulated from the mouse, and the
+	// stick's LEFT/RIGHT are dropped so the two cannot fight. Everything
+	// below this block - the direction, the cap, the velocity-scaled turn
+	// rate - runs unchanged, so a bar held at half lock turns exactly as a
+	// mouse wheel held at half lock does. Letting go hands the wheel to the
+	// keyboard's own centring path, which is what happens after a stick
+	// turn today.
+	LTBOOL bVRDirect = LTFALSE;
+	const char* pszVRSource = "keys";	// who set the wheel, for the log
+	{
+		LTFLOAT fBar = 0.0f;
+		const LTBOOL bNow = (!bAniLock && VRSteerBar(fBar));
+		if (bNow)
+		{
+			const float fTau = g_vtVRVehicleSteerSmooth.GetFloat();
+			const float fDt  = g_pGameClientShell->GetFrameTime();
+			float k = (fTau > 0.001f) ? (1.0f - (float)exp(-fDt / fTau)) : 1.0f;
+			if (!m_bVRSteering) k = 1.0f;		// taking the bars: no lag from the old value
+			m_fVRBar += (fBar - m_fVRBar) * k;
+
+			LTFLOAT fWheel = m_fVRBar * g_vtVRVehicleSteerGain.GetFloat();
+			if (fWheel >  fMaxOffset) fWheel =  fMaxOffset;
+			if (fWheel < -fMaxOffset) fWheel = -fMaxOffset;
+			m_fYawDiff = fWheel;
+
+			fYawDelta = 0.0f;
+			m_bKeyboardTurning = LTFALSE;
+			m_dwControlFlags &= ~(BC_CFLG_STRAFE_LEFT | BC_CFLG_LEFT | BC_CFLG_STRAFE_RIGHT | BC_CFLG_RIGHT);
+			bVRDirect = LTTRUE; pszVRSource = "HANDS";
+
+			if (!m_bVRSteering)
+				VRLog::Msg("VRSteer: hands on the bars (VRVehicleSteer %d), bar %+.1f deg",
+					(int)g_vtVRVehicleSteer.GetFloat(), RAD2DEG(fBar));
+		}
+		else if (m_bVRSteering)
+		{
+			m_bKeyboardTurning = LTTRUE;	// centre the wheel the way the keyboard does
+			VRLog::Msg("VRSteer: hands off the bars, wheel centring from %+.1f deg", RAD2DEG(m_fYawDiff));
+		}
+		m_bVRSteering = bNow;
+
+		// THE STICK, ANALOG, when the hands are not on the bars. Same filter
+		// and cap as the bars, so the wheel moves as smoothly from a stick as
+		// from two hands; a centred stick is a straight wheel.
+		LTFLOAT fFrac = 0.0f;
+		if (!bNow && !bAniLock && VRSteerStick(fFrac))
+		{
+			const float fTau = g_vtVRVehicleSteerSmooth.GetFloat();
+			const float fDt  = g_pGameClientShell->GetFrameTime();
+			const float k = (fTau > 0.001f) ? (1.0f - (float)exp(-fDt / fTau)) : 1.0f;
+			float fGain = g_vtVRVehicleStickGain.GetFloat();
+			if (fGain < 0.1f) fGain = 0.1f;
+			if (fGain > 1.0f) fGain = 1.0f;
+			m_fVRStick += (fFrac * fGain * fMaxOffset - m_fVRStick) * k;
+			m_fYawDiff = m_fVRStick;
+
+			fYawDelta = 0.0f;
+			m_bKeyboardTurning = LTFALSE;
+			m_dwControlFlags &= ~(BC_CFLG_STRAFE_LEFT | BC_CFLG_LEFT | BC_CFLG_STRAFE_RIGHT | BC_CFLG_RIGHT);
+			bVRDirect = LTTRUE; pszVRSource = "STICK";
+
+			static int s_nStickLog = 0;
+			if (s_nStickLog < 40 && fFrac != 0.0f)
+			{
+				++s_nStickLog;
+				VRLog::Msg("VRSteer: stick %+.2f -> wheel %+.1f deg (full lock %.1f)",
+					fFrac, RAD2DEG(m_fYawDiff), RAD2DEG(fMaxOffset));
+			}
+		}
+		else
+		{
+			m_fVRStick = m_fYawDiff;	// the bars or the keyboard own it; take over from there
+		}
+	}
+
+	// The stick or the hands set the wheel: a small threshold instead of the
+	// mouse wheel's dead band (VRVehicleMinWheel above).
+	if (bVRDirect)
+	{
+		float fMin = g_vtVRVehicleMinWheel.GetFloat();
+		if (fMin < 0.0f) fMin = 0.0f;
+		if (fMin < RAD2DEG(fOffset)) fOffset = DEG2RAD(fMin);
 	}
 
 	if (fYawDelta)
@@ -3284,6 +3478,113 @@ void CVehicleMgr::CalculateVehicleRotation(LTVector & vPlayerPYR,
 	// Keep the camera and player pitch/yaw/roll in sync...
 
 	vPYR.y = vPlayerPYR.y;
+
+	// Once a second while on a vehicle: the wheel, the direction and the yaw
+	// it produced. This is the desk's whole view of steering - a run that
+	// asked for a right turn must show yaw climbing here, or nothing was
+	// steered.
+	{
+		static float s_fLastSaid = -100.0f;
+		const float fNow = g_pLTClient->GetTime();
+		if (fNow - s_fLastSaid >= 1.0f)
+		{
+			s_fLastSaid = fNow;
+			VRLog::Msg("VRSteer: %s bar %+.1f wheel %+.1f/%.0f deg dir %d turning %d yaw %.1f deg",
+				pszVRSource, RAD2DEG(m_fVRBar), RAD2DEG(m_fYawDiff),
+				RAD2DEG(fMaxOffset), m_nVehicleTurnDirection, (int)m_bVehicleTurning,
+				RAD2DEG(vPlayerPYR.y));
+		}
+	}
+}
+
+
+// ----------------------------------------------------------------------- //
+//
+//	ROUTINE:	CVehicleMgr::VRSteerStick
+//
+//	PURPOSE:	The stick's steering as a fraction of full lock, -1..1, past
+//				the dead zone, rescaled and shaped by VRVehicleStickCurve so
+//				the first half of the travel is fine control. The larger of the two
+//				sticks' X: both steered through the key path. False when off
+//				or not in a headset, which leaves the game's own steering.
+//
+// ----------------------------------------------------------------------- //
+
+LTBOOL CVehicleMgr::VRSteerStick(LTFLOAT & fFrac)
+{
+	if (g_vtVRVehicleStickAnalog.GetFloat() <= 0.0f || !VRShared::IsLive()) return LTFALSE;
+
+	const VRSharedState& s = VRShared::State();
+	float x = 0.0f;
+	for (int h = 0; h < 2; ++h)
+	{
+		const VRHandState& hs = s.Hands[h];
+		if (hs.nActive && fabsf(hs.fStickX) > fabsf(x)) x = hs.fStickX;
+	}
+
+	float dz = g_vtVRStickDeadzone.GetFloat();
+	if (dz < 0.05f) dz = 0.05f;
+	if (dz > 0.90f) dz = 0.90f;
+	const float a = fabsf(x);
+	if (a <= dz) { fFrac = 0.0f; return LTTRUE; }
+	float f = (a - dz) / (1.0f - dz);
+	if (f > 1.0f) f = 1.0f;
+	float fCurve = g_vtVRVehicleStickCurve.GetFloat();
+	if (fCurve < 1.0f) fCurve = 1.0f;
+	if (fCurve > 4.0f) fCurve = 4.0f;
+	f = powf(f, fCurve);
+	fFrac = (x < 0.0f) ? -f : f;
+	return LTTRUE;
+}
+
+
+// ----------------------------------------------------------------------- //
+//
+//	ROUTINE:	CVehicleMgr::VRSteerBar
+//
+//	PURPOSE:	The handlebar angle from the two controllers. OpenXR's
+//				tracking space is +X right, -Z forward, which is also the
+//				vehicle's frame: the aim code applies hand angles against the
+//				BODY yaw, so tracking-forward is the body's forward, and on
+//				a vehicle the body is the vehicle. Pulling the right grip
+//				back (+Z) and pushing the left forward is a right turn, and
+//				atan2(dz, dx) is positive for it - positive m_fYawDiff is
+//				TD_RIGHT below.
+//
+// ----------------------------------------------------------------------- //
+
+LTBOOL CVehicleMgr::VRSteerBar(LTFLOAT & fBarRad)
+{
+	const int nMode = (int)g_vtVRVehicleSteer.GetFloat();
+	if (nMode <= 0 || !VRShared::IsLive()) return LTFALSE;
+
+	const VRSharedState& s = VRShared::State();
+	// THE BAR IS PHYSICAL. Its angle is the line from the left hand to the
+	// right one, and the Leftorium swaps the hands as they enter the game - so
+	// undo the swap here, or the bar would read as turned half a circle.
+	const bool bSw = VRShared::SwapHands();
+	const VRHandState&   L = s.Hands[bSw ? 1 : 0];
+	const VRHandState&   R = s.Hands[bSw ? 0 : 1];
+	if (!L.nActive || !R.nActive) return LTFALSE;
+
+	if (nMode == 1)
+	{
+		// Taking the bars is a grip on each hand - button or the analog
+		// squeeze, whichever the runtime reports.
+		const bool bL = (L.nButtons & VRBTN_GRIP) != 0 || L.fGrip > 0.5f;
+		const bool bR = (R.nButtons & VRBTN_GRIP) != 0 || R.fGrip > 0.5f;
+		if (!bL || !bR) return LTFALSE;
+	}
+
+	const float dx = R.fPosX - L.fPosX;
+	const float dz = R.fPosZ - L.fPosZ;
+	const float fSep = (float)sqrt(dx * dx + dz * dz);
+	// Two hands on a bar are 15-90 cm apart in the horizontal plane. Anything
+	// else is not a grip on the bars - a controller on the desk, say.
+	if (fSep < 0.12f || fSep > 1.2f) return LTFALSE;
+
+	fBarRad = (LTFLOAT)atan2(dz, dx);
+	return LTTRUE;
 }
 
 
@@ -3449,7 +3750,13 @@ void CVehicleMgr::AdjustCameraRoll(LTFLOAT & fRoll)
 
 		// Update head can't only when moving...
 
-		if (!m_bVehicleStopped)
+		// NOT IN VR. The cant rolls the camera up to VehicleMaxHeadCant (20
+		// degrees) with the wheel, which on a monitor sells the lean and in a
+		// headset tilts the whole world against a head that did not tilt -
+		// and declares a pose to the runtime the picture was not drawn from.
+		// The handlebars still turn (m_fHandlebarRoll above drives the model
+		// node); only the camera keeps level.
+		if (!m_bVehicleStopped && !VRShared::IsLive())
 		{
 			fRoll = m_fHandlebarRoll;
 

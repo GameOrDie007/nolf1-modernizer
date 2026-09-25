@@ -14,6 +14,7 @@
 #include "iltclient.h"
 #include "iltphysics.h"
 #include "CMoveMgr.h"
+#include "VRShared.h"
 #include "GameClientShell.h"
 #include "SharedMovement.h"
 #include "CommandIDs.h"
@@ -387,16 +388,29 @@ void CMoveMgr::UpdateControlFlags()
 //
 // ----------------------------------------------------------------------- //
 
+// The engine's command state, OR whatever the headset's controllers are
+// holding. Every movement read in this file goes through here.
+//
+// A VR controller cannot reach the engine's command state: that is set by the
+// input bindings, and the joystick sweep is deliberately disabled here (the
+// DirectInput proxy in host/dinputproxy exists because enumerating joysticks
+// hung the game before CShell.dll even ran). So the controller's commands are
+// carried alongside and merged at the point of use.
+static inline bool VRCmdOn(int nCmd)
+{
+	return g_pLTClient->IsCommandOn(nCmd) || VRShared::CommandOn(nCmd);
+}
+
 void CMoveMgr::UpdateNormalControlFlags()
 {
 	// Determine what commands are currently on...
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_LEFT))
+    if (VRCmdOn(COMMAND_ID_LEFT))
 	{
 		m_dwControlFlags |= BC_CFLG_LEFT;
 	}
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_RIGHT))
+    if (VRCmdOn(COMMAND_ID_RIGHT))
 	{
 		m_dwControlFlags |= BC_CFLG_RIGHT;
 	}
@@ -405,7 +419,7 @@ void CMoveMgr::UpdateNormalControlFlags()
 	if (g_pGameClientShell->GetPlayerState() == PS_GHOST) return;
 
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_RUN) ^ g_pInterfaceMgr->GetSettings()->RunLock())
+	if (VRCmdOn(COMMAND_ID_RUN) ^ g_pInterfaceMgr->GetSettings()->RunLock())
 	{
 		m_dwControlFlags |= BC_CFLG_RUN;
 	}
@@ -426,7 +440,7 @@ void CMoveMgr::UpdateNormalControlFlags()
 
 	if (IsMultiplayerGame())
 	{
-		if (g_pLTClient->IsCommandOn(COMMAND_ID_DUCK))
+		if (VRCmdOn(COMMAND_ID_DUCK))
 		{
 			m_dwControlFlags |= BC_CFLG_DUCK;
 		}
@@ -445,7 +459,7 @@ void CMoveMgr::UpdateNormalControlFlags()
 		}
 		else  // This is needed for some menu specific cheats (player may not be around)
 		{
-			if (g_pLTClient->IsCommandOn(COMMAND_ID_DUCK))
+			if (VRCmdOn(COMMAND_ID_DUCK))
 			{
 				m_dwControlFlags |= BC_CFLG_DUCK;
 			}
@@ -456,43 +470,43 @@ void CMoveMgr::UpdateNormalControlFlags()
 
 	if (!(m_dwControlFlags & BC_CFLG_DUCK))
 	{
-		if (g_pLTClient->IsCommandOn(COMMAND_ID_JUMP))
+		if (VRCmdOn(COMMAND_ID_JUMP))
 		{
 			m_dwControlFlags |= BC_CFLG_JUMP;
 		}
 	}
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_FORWARD))
+    if (VRCmdOn(COMMAND_ID_FORWARD))
     {
 		m_dwControlFlags |= BC_CFLG_FORWARD;
 	}
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_REVERSE))
+    if (VRCmdOn(COMMAND_ID_REVERSE))
     {
 		m_dwControlFlags |= BC_CFLG_REVERSE;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE))
+	if (VRCmdOn(COMMAND_ID_STRAFE))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE_RIGHT))
+	if (VRCmdOn(COMMAND_ID_STRAFE_RIGHT))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE_RIGHT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_STRAFE_LEFT))
+	if (VRCmdOn(COMMAND_ID_STRAFE_LEFT))
 	{
 		m_dwControlFlags |= BC_CFLG_STRAFE_LEFT;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_FIRING))
+	if (VRCmdOn(COMMAND_ID_FIRING))
 	{
 		m_dwControlFlags |= BC_CFLG_FIRING;
 	}
 
-	if (g_pLTClient->IsCommandOn(COMMAND_ID_ALT_FIRING))
+	if (VRCmdOn(COMMAND_ID_ALT_FIRING))
 	{
 		m_dwControlFlags |= BC_CFLG_ALT_FIRING;
 	}

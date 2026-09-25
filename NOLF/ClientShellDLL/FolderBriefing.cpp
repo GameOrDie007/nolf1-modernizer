@@ -12,6 +12,7 @@
 #include "InterfaceMgr.h"
 #include "ClientRes.h"
 #include "SoundMgr.h"
+#include "VRLog.h"
 extern CGameClientShell* g_pGameClientShell;
 
 
@@ -97,6 +98,16 @@ void CFolderBriefing::OnFocus(LTBOOL bFocus)
         g_pLTClient->FreeString(hTxt);
 
 		m_pBriefTextCtrl->SetString(briefId);
+		// WHAT THE CARD WAS GIVEN. 13 September: the paragraph's surface held
+		// the difficulty reminder (string 618) instead of the briefing; this
+		// says which mission, which string id, and what the id resolved to.
+		{
+			HSTRING hB = g_pLTClient->FormatString(briefId);
+			const char* pB = hB ? g_pLTClient->GetStringData(hB) : "";
+			VRLog::Msg("BRIEFING: mission %d name id %d brief id %d -> \"%.60s\"",
+				missionNum, missionId, briefId, pB ? pB : "(null)");
+			if (hB) g_pLTClient->FreeString(hB);
+		}
 
 		char szFile[256]= "";
 		sprintf(szFile,"voice\\%d.wav",briefId);

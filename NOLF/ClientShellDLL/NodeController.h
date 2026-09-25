@@ -67,6 +67,9 @@ typedef struct NCSTRUCT
         pEightBitBuffer = LTNULL;
 		dwSamplesPerSecond = 0;
 		bShowingSubtitles = LTFALSE;
+		fVRLipStart = 0.0f;
+		nVRLipFrames = 0;
+		nVRLipLogged = 0;
 
 
 		fScriptTime = 0.0f;
@@ -106,6 +109,11 @@ typedef struct NCSTRUCT
 	int8  *     pEightBitBuffer;
     uint32      dwSamplesPerSecond;
 	LTBOOL		bShowingSubtitles;
+	// VR diagnostics: when the lip-sync sound started, how many frames it
+	// has been driven, and which one-shot log lines have gone out (bits).
+	LTFLOAT		fVRLipStart;
+	uint32		nVRLipFrames;
+	uint32		nVRLipLogged;
 
 
 	// Script members

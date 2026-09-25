@@ -17,6 +17,7 @@
 #include "ClientUtilities.h"
 #include "WeaponMgr.h"
 #include "GameClientShell.h"
+#include "VRLog.h"
 #include "ClientWeaponUtils.h"
 #include "SurfaceFunctions.h"
 
@@ -133,6 +134,9 @@ LTBOOL CShellCasingFX::CreateObject(ILTClient *pClientDE)
 	InitMovingObject(&m_movingObj, &m_vStartPos, &m_vStartVel);;
 
 	m_fDieTime = pClientDE->GetTime() + GetRandom(10.0f, 15.0f);
+	// VRPersistentFX: the casing stays where it stopped rolling.
+	if (g_pGameClientShell && g_pGameClientShell->VRPersistentFX())
+		m_fDieTime = pClientDE->GetTime() + 100000.0f;
 
     return LTTRUE;
 }
@@ -151,6 +155,22 @@ LTBOOL CShellCasingFX::Update()
     if (!m_hObject || !m_pClientDE) return LTFALSE;
 
     if (m_pClientDE->GetTime() > m_fDieTime) return LTFALSE;
+
+	// WHERE EACH CASING IS AND WHETHER IT IS VISIBLE, every 30 frames: the
+	// Hampton's brass vanished when the tester walked up to it while the
+	// P38's stayed (22 September), and the count never dropped.
+	{
+		static uint32 s_nCasingSaid = 0;
+		if ((++s_nCasingSaid % 30) == 1)
+		{
+			LTVector vP, vCam(0,0,0); m_pClientDE->GetObjectPos(m_hObject, &vP);
+			HOBJECT hCam = g_pGameClientShell ? g_pGameClientShell->GetCamera() : LTNULL;
+			if (hCam) m_pClientDE->GetObjectPos(hCam, &vCam);
+			const uint32 dwF = m_pClientDE->GetObjectFlags(m_hObject);
+			VRLog::Msg("VRCasing %p: at %.0f %.0f %.0f, %.0f from the eye, flags %#x visible %s resting %d",
+				(void*)m_hObject, vP.x, vP.y, vP.z, (vP - vCam).Mag(), dwF, (dwF & FLAG_VISIBLE) ? "yes" : "NO", (int)m_bResting);
+		}
+	}
 
     if (m_bResting) return LTTRUE;
 

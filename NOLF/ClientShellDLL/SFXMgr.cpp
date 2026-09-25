@@ -79,15 +79,21 @@ static unsigned int s_nDynArrayMaxNums[DYN_ARRAY_SIZE] =
 	50,		// Smoke
 	50,		// Bullet trail
 	50,		// Volume brush
-	200,	// Shell casings
+	3000,	// Shell casings   <- was 200. These lists hold POINTERS, so the
+			//                     array itself is 12 KB; what it costs is that
+			//                     every one is updated and published per frame.
 	1,		// Camera - Unused, it has its own list
 	20,		// Particle explosions
-	200,	// Sprites/Models (base scale)
+	3000,	// Sprites/Models (base scale)   <- was 200. Blood splats are scale
+			//                     FX, and so are many other effects, so this is
+			//                     the busiest of the three lists.
 	100,	// Debris
 	50,		// Death
 	50,		// Gibs
 	50,		// Projectile
-	100,	// Marks - bullet holes
+	3000,	// Marks - bullet holes   <- was 100, and OVERRIDDEN below by a
+			//                     detail setting, which is where the real limit
+			//                     lived.
 	100,	// Light
 	50,		// Random sparks
 	50,		// Pickup item
@@ -1373,6 +1379,25 @@ void CSFXMgr::RemoveAllDynamicSpecialFX()
 //
 // ----------------------------------------------------------------------- //
 
+CSpecialFX* CSFXMgr::FindSpecialFXByClientObj(uint8 nType, HLOCALOBJ hObj)
+{
+	if (0 <= nType && nType < DYN_ARRAY_SIZE)
+	{
+		int nNumSFX = m_dynSFXLists[nType].GetSize();
+
+		for (int i=0; i < nNumSFX; i++)
+		{
+			if (m_dynSFXLists[nType][i] && m_dynSFXLists[nType][i]->GetObject() == hObj)
+			{
+				return m_dynSFXLists[nType][i];
+			}
+		}
+	}
+
+	return LTNULL;
+}
+
+
 CSpecialFX* CSFXMgr::FindSpecialFX(uint8 nType, HLOCALOBJ hObj)
 {
 	if (0 <= nType && nType < DYN_ARRAY_SIZE)
@@ -1428,9 +1453,40 @@ unsigned int CSFXMgr::GetDynArrayMaxNum(uint8 nIndex)
 	if (0 <= nIndex && nIndex < DYN_ARRAY_SIZE)
 	{
 		// Use detail setting for bullet holes...
-
+		//
+		// AND THIS IS WHERE THE REAL LIMIT ON BULLET HOLES LIVED. The table
+		// above says 3000; this quietly replaces it with a 2000-era detail
+		// slider, which is 100 by default and is why marks capped at 101 while
+		// casings capped at 200. With VRPersistentFX on, the whole point is
+		// that holes are kept, so the table's number wins and the slider only
+		// applies when persistence is off.
+		// PERSISTENT, BUT NOT WITHOUT LIMIT. The table allows 3,000 of each of
+		// the three kept kinds, and a ten-minute firefight reached it: 3,000
+		// marks cost the frame 11.1 -> 14.8 ms on the headset path (the
+		// engine's per-object work, the model and sprite passes, the publish),
+		// holding 90 up to about 1,500 (desk soak, 24 September). So the kept
+		// kinds recycle their oldest past VRPersistentFXMax, default 1,000 -
+		// still ten times the game's own 100 bullet holes. Raise it for more
+		// at a frame-rate cost; the table's 3,000 is the ceiling.
+		if (g_pGameClientShell && g_pGameClientShell->VRPersistentFX()
+			&& (nIndex == SFX_MARK_ID || nIndex == SFX_SHELLCASING_ID || nIndex == SFX_SCALE_ID))
+		{
+			static VarTrack s_vtPersistMax;
+			if (!s_vtPersistMax.IsInitted() && g_pLTClient)
+				s_vtPersistMax.Init(g_pLTClient, "VRPersistentFXMax", LTNULL, 1000.0f);
+			unsigned int nCap = s_nDynArrayMaxNums[nIndex];
+			if (s_vtPersistMax.IsInitted())
+			{
+				const float f = s_vtPersistMax.GetFloat();
+				if (f >= 1.0f && (unsigned int)f < nCap) nCap = (unsigned int)f;
+			}
+			return nCap;
+		}
 		if (nIndex == SFX_MARK_ID)
 		{
+			if (g_pGameClientShell && g_pGameClientShell->VRPersistentFX())
+				return s_nDynArrayMaxNums[nIndex];
+
 			CGameSettings* pSettings = g_pInterfaceMgr->GetSettings();
 			if (pSettings)
 			{

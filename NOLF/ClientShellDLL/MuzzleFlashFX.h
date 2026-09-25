@@ -50,6 +50,7 @@ class CMuzzleFlashFX : public CSpecialFX
             m_bUsingScale       = LTFALSE;
             m_bUsingLight       = LTFALSE;
             m_bHidden           = LTFALSE;
+			m_rVRGunRot.Init();
 		}
 
 		void Term();
@@ -67,6 +68,27 @@ class CMuzzleFlashFX : public CSpecialFX
         void SetRot(LTRotation rRot);
 
 		virtual uint32 GetSFXID() { return SFX_MUZZLEFLASH_ID; }
+
+		// VR: THE FLASH'S OWN OBJECTS, so the publish path can be HANDED them.
+		//
+		// A FLAG_REALLYCLOSE object holds no world position - LithTech keeps
+		// it in camera space - so it sits a few units from the world ORIGIN
+		// wherever the player is standing, and the eye-centred sphere that
+		// gathers sprites can never reach it. The view weapon is already
+		// added explicitly for exactly this reason (see nViewWeapon); its
+		// flash needs the same. the muzzle
+		// flash was not attached to the gun.
+		HLOCALOBJ VRGetScaleObject() const { return m_Scale.GetObject(); }
+		LTBOOL    VRUsingScale()     const { return m_bUsingScale; }
+		// The other two thirds of a NOLF muzzle flash. The P38's PV flash
+		// has NO scale fx at all - its ScaleFXName is commented out in
+		// ATTRIBUTES/FX.TXT - so asking only about the scale object says
+		// 'no flash' for a weapon whose flash is particles and a light.
+		LTBOOL    VRUsingParticles() const { return m_bUsingParticles; }
+		LTBOOL    VRUsingLight()     const { return m_bUsingLight; }
+		LTBOOL    VRHidden()         const { return m_bHidden; }
+		HLOCALOBJ VRParticleObject() const { return m_Particle.GetObject(); }
+		HLOCALOBJ VRLightObject()    const { return m_Light.GetObject(); }
 	private :
 
         LTBOOL   Reset(MUZZLEFLASHCREATESTRUCT & cs);
@@ -84,6 +106,10 @@ class CMuzzleFlashFX : public CSpecialFX
         LTBOOL                       m_bUsingScale;
         LTBOOL                       m_bUsingLight;
         LTBOOL                       m_bHidden;
+		// The gun rotation SetRot was last given (CWeaponModel::VRGunRot), so
+		// the readback in SetPos can compare the flash's drawn forward with
+		// the gun's. One frame stale, which a still hand cannot tell.
+		LTRotation					m_rVRGunRot;
 };
 
 #endif // __MUZZLE_FLASH_FX_H__

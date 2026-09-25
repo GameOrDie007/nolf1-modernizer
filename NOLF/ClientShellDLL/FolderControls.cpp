@@ -62,6 +62,12 @@ LTBOOL CFolderControls::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_JOYSTICK_USE };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	//customize
 	AddTextItem(IDS_CUSTOM_CONTROLS, FOLDER_CMD_CUSTOM_CONTROLS, IDS_HELP_CUSTOMCONTROLS);

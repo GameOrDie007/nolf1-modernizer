@@ -44,6 +44,13 @@ class CWeaponModel
 
 		void	SetupModel();
 
+		// THE AIM, and the only place it is decided. Public because the VR
+		// aim marker in GameClientShell must be built from this exact call:
+		// a crosshair computed a second way is a crosshair that can lie.
+		LTBOOL	GetFireInfo(LTVector & vU, LTVector & vR, LTVector & vF,
+							LTVector & vFirePos);
+
+
 		void	ToggleHolster(LTBOOL bPlayDeselect=LTTRUE);
 		void	SetHolster(uint8 nWeaponId);
 		uint8	GetHolster() { return m_nHolsterWeaponId; }
@@ -58,6 +65,34 @@ class CWeaponModel
 
 		void Reset();
 		HLOCALOBJ GetHandle() const { return m_hObject; }
+		// VR: the first-person muzzle flash's sprite, for the publish path.
+		// See CMuzzleFlashFX::VRGetScaleObject.
+		HLOCALOBJ VRGetFlashHandle() const
+		{ return m_MuzzleFlash.VRUsingScale() ? m_MuzzleFlash.VRGetScaleObject()
+											  : LTNULL; }
+		// Is the flash effect a SCALE fx at all? A no here and a no from
+		// VRGetFlashHandle mean different things: this one says the effect was
+		// never set up, the other that it was set up and has no object.
+		LTBOOL VRFlashUsingScale() const { return m_MuzzleFlash.VRUsingScale(); }
+		LTBOOL VRFlashParticles()  const { return m_MuzzleFlash.VRUsingParticles(); }
+		LTBOOL VRFlashLight()      const { return m_MuzzleFlash.VRUsingLight(); }
+		LTBOOL VRFlashHidden()     const { return m_MuzzleFlash.VRHidden(); }
+		LTBOOL VRHasPVMuzzleFX()   const { return m_pWeapon && m_pWeapon->pPVMuzzleFX ? LTTRUE : LTFALSE; }
+		// The flash's own objects, for the publish path to be handed.
+		HLOCALOBJ VRFlashParticleObject() const { return m_MuzzleFlash.VRParticleObject(); }
+		HLOCALOBJ VRFlashLightObject()    const { return m_MuzzleFlash.VRLightObject(); }
+		// A SILENCED WEAPON HAS NO MUZZLE FLASH, BY DESIGN, and the gate is
+		// not on the weapon - it is on whether a silencer MOD is fitted.
+		// CWeaponModel::UpdateWeaponModel does not even call UpdateFlash
+		// when one is. The arsenal cheat hands out mods as well as guns, so
+		// a test run can silence every weapon in the game without saying so.
+		LTBOOL VRHaveSilencer()    const { return m_bHaveSilencer; }
+		// THE MODS, for the publisher: 0 silencer, 1 scope, 2 laser. Camera-
+		// relative client objects the engine keeps at the gun's sockets.
+		HOBJECT VRModObject(int k) const { return k == 0 ? m_hSilencerModel : (k == 1 ? m_hScopeModel : m_hLaserModel); }
+		LTBOOL  VRModShown(int k)  const { return k == 0 ? m_bHaveSilencer  : (k == 1 ? m_bHaveScope  : m_bHaveLaser); }
+		// What the model INTENDED, as against what the object flags say.
+		LTBOOL VRWantsVisible()    const { return m_bVisible; }
 
         void UpdateBob(LTFLOAT fWidth, LTFLOAT fHeight);
 
@@ -76,6 +111,26 @@ class CWeaponModel
 
         LTVector GetWeaponOffset();
         LTVector GetMuzzleOffset();
+		// The gun's REAL rotation. GetModelRot returns the camera's - see the
+		// note on the implementation.
+		LTRotation VRGunRot() const;
+		// The gun's rotation plus the per-weapon AIM trim: the line the shot,
+		// the reticle and the flash's orientation follow. Positions stay on VRGunRot.
+		LTRotation VRAimRot() const;
+		// The scale the view model is drawn at (VRWeaponScale, per weapon).
+		float      VRWeaponScale() const;
+		// The per-weapon muzzle trim (VRFlashOffR/U/F@<weapon>), in the GUN's
+		// frame. The flash and the tracer must both use it or tuning one moves
+		// it away from the other.
+		LTVector   VRFlashOffset() const;
+		// GRIP: where the gun's origin sits relative to the hand, in the gun's
+		// own frame, world units. Tuner mode 5. Zero until tuned.
+		LTVector   VRGripOffset() const;
+		LTVector   VRLensOffset() const;	// the integrated scope's eyepiece, gun frame, world units
+		float      VRLensRadius() const;	// 0 = the mesh's
+		// Additive on top of the flash offset, per effect. See WeaponModel.cpp.
+		LTVector   VRTracerOffset() const;
+		LTVector   VRShellOffset() const;
 
 		int GetWeaponId()	const { return m_nWeaponId; }
 		int GetAmmoId()		const { return m_nAmmoId; }
@@ -195,8 +250,6 @@ class CWeaponModel
 
         uint8   GetLastSndFireType();
 
-        LTBOOL  GetFireInfo(LTVector & vU, LTVector & vR, LTVector & vF,
-            LTVector & vFirePos);
 
 		WeaponState	SetState(WeaponState eNewState);
 

@@ -11,7 +11,9 @@
 // ----------------------------------------------------------------------- //
 
 #include "stdafx.h"
+#include "VRShared.h"
 #include "PlayerStats.h"
+#include "VRLog.h"
 #include "WeaponMgr.h"
 #include <stdio.h>
 #include "GameClientShell.h"
@@ -24,6 +26,43 @@
 #include "SoundMgr.h"
 #include "SurfaceFunctions.h"
 #include "CharacterFX.h"
+
+// THE HUD'S CORNERS ARE NOT WHERE A HEADSET CAN SEE. The layout's corners
+// land on the eye's edges, outside the lens's clear field, so the ammo
+// counter at the bottom right was simply not visible in the headset. VRHudInset
+// moves every HUD anchor toward the screen's centre by that fraction of
+// the distance (default 0.3); 0 is the authored layout. VR only.
+static float VRHudInsetF()
+{
+	static VarTrack s_vt;
+	if (!s_vt.IsInitted()) s_vt.Init(g_pLTClient, "VRHudInset", LTNULL, 0.3f);
+	return VRShared::IsLive() ? s_vt.GetFloat() : 0.0f;
+}
+// SIDEWAYS FURTHER THAN UP AND DOWN. The 2D layer spans the eye's width
+// (about 80 degrees in a Quest 3) but only about 49 degrees of its height, so the
+// same fraction is nearly twice the angle across. At 0.3 the health and armor
+// sat about 30 degrees out and read as tiny and off to the side (headset, 24
+// September); VRHudInsetX (default 0.45) is the horizontal fraction, and a
+// negative value means "use VRHudInset for both".
+static float VRHudInsetXF()
+{
+	static VarTrack s_vt;
+	if (!s_vt.IsInitted()) s_vt.Init(g_pLTClient, "VRHudInsetX", LTNULL, 0.45f);
+	if (!VRShared::IsLive()) return 0.0f;
+	return (s_vt.GetFloat() < 0.0f) ? VRHudInsetF() : s_vt.GetFloat();
+}
+static int VRInsetX(int x)
+{
+	const float f = VRHudInsetXF(); if (f <= 0.0f) return x;
+	const float cx = 0.5f * (float)g_pInterfaceResMgr->GetScreenWidth();
+	return (int)((float)x + (cx - (float)x) * f);
+}
+static int VRInsetY(int y)
+{
+	const float f = VRHudInsetF(); if (f <= 0.0f) return y;
+	const float cy = 0.5f * (float)g_pInterfaceResMgr->GetScreenHeight();
+	return (int)((float)y + (cy - (float)y) * f);
+}
 
 extern CGameClientShell* g_pGameClientShell;
 extern VarTrack g_vtShowFPS;
@@ -210,6 +249,9 @@ CPlayerStats::CPlayerStats()
     m_hHUDAmmo = LTNULL;
     m_hAmmoBar = LTNULL;
     m_hAmmoIcon = LTNULL;
+    m_hVRAmmoStr = LTNULL;
+    m_nVRAmmoW = m_nVRAmmoH = 0;
+    m_szVRAmmo[0] = 0;
     m_hAmmoFull = LTNULL;
     m_hAmmoEmpty = LTNULL;
 	m_AmmoSz = nullPt;
@@ -1153,12 +1195,44 @@ void CPlayerStats::UpdateGear(uint8 nGearId)
 //
 // ----------------------------------------------------------------------- //
 
+int CPlayerStats::VRHaveEverything(int& nMods)
+{
+	int nW = 0; nMods = 0;
+	if (!g_pWeaponMgr) return 0;
+	const int nNumWeapons = g_pWeaponMgr->GetNumWeapons();
+	for (int i = 0; i < nNumWeapons; i++)
+	{
+		if (!g_pWeaponMgr->IsPlayerWeapon(i)) continue;
+		if (m_pbHaveWeapon)   m_pbHaveWeapon[i]   = LTTRUE;
+		if (m_pbCanUseWeapon) m_pbCanUseWeapon[i] = LTTRUE;
+		++nW;
+	}
+	const int nNumMods = g_pWeaponMgr->GetNumModTypes();
+	for (int m = 0; m < nNumMods; m++)
+	{
+		if (m_pbHaveMod)   m_pbHaveMod[m]   = LTTRUE;
+		if (m_pbCanUseMod) m_pbCanUseMod[m] = LTTRUE;
+		++nMods;
+	}
+	// The gun in the hand gets its mods now, as a pickup would give them.
+	CWeaponModel* pWeapon = g_pGameClientShell ? g_pGameClientShell->GetWeaponModel() : LTNULL;
+	if (pWeapon) pWeapon->CreateMods();
+	return nW;
+}
+
 void CPlayerStats::UpdateMod(uint8 nModId)
 {
 	if (g_pWeaponMgr->IsValidModType(nModId))
 	{
 		if (m_pbHaveMod)
 		{
+			{
+				MOD* pM = g_pWeaponMgr->GetMod(nModId);
+				CWeaponModel* pW = g_pGameClientShell ? g_pGameClientShell->GetWeaponModel() : LTNULL;
+				VRLog::Msg("VRSave: mod %d '%s' for weapon %d arrived (held already %s, gun in hand %d)",
+						   (int)nModId, pM ? pM->szName : "?", pM ? pM->GetWeaponId() : -1,
+						   m_pbHaveMod[nModId] ? "yes" : "no", pW ? (int)pW->GetWeaponId() : -1);
+			}
 			if (!m_pbHaveMod[nModId])
 			{
 				m_pbHaveMod[nModId] = LTTRUE;
@@ -1473,8 +1547,8 @@ void CPlayerStats::DrawPlayerStats(HSURFACE hScreen, int nLeft, int nTop, int nR
 	CDamageFXMgr *pDFX = g_pGameClientShell->GetDamageFXMgr();
 	if (pDFX)
 	{
-		int nDamageX = (int) ((float)m_DamageBasePos.x * xRatio);
-		int nDamageY = (int) ((float)(m_DamageBasePos.y * yRatio) / 1.5f);
+		int nDamageX = VRInsetX((int) ((float)m_DamageBasePos.x * xRatio));
+		int nDamageY = VRInsetY((int) ((float)(m_DamageBasePos.y * yRatio) / 1.5f));
 
 		// Damage icons can get ugly at high resolutions, scale them down slightly.
 		float fScale = fUIScale * 0.75f;
@@ -1524,8 +1598,8 @@ void CPlayerStats::DrawPlayerStats(HSURFACE hScreen, int nLeft, int nTop, int nR
 	
 	if (m_fAirPercent < 1.0f)
 	{
-		int nAirX = (int) ((float)m_AirBasePos.x * xRatio);
-		int nAirY = (int) ((float)m_AirBasePos.y * yRatio);
+		int nAirX = VRInsetX((int) ((float)m_AirBasePos.x * xRatio));
+		int nAirY = VRInsetY((int) ((float)m_AirBasePos.y * yRatio));
 		if (m_bUseAirBar)
 		{
 			int nBarX = nAirX + m_AirBarOffset.x;
@@ -1569,8 +1643,8 @@ void CPlayerStats::DrawPlayerStats(HSURFACE hScreen, int nLeft, int nTop, int nR
 	// draw the HUD
 	if (bShowStats)
 	{
-		int nHealthX = (int) ((float)m_HealthBasePos.x * xRatio);
-		int nHealthY = (int) ((float)m_HealthBasePos.y * yRatio);
+		int nHealthX = VRInsetX((int) ((float)m_HealthBasePos.x * xRatio));
+		int nHealthY = VRInsetY((int) ((float)m_HealthBasePos.y * yRatio));
 
 		if (m_bUseHealthBar)
 		{
@@ -1665,14 +1739,89 @@ void CPlayerStats::DrawPlayerStats(HSURFACE hScreen, int nLeft, int nTop, int nR
 			WEAPON* pW = g_pWeaponMgr->GetWeapon(m_nCurrentWeapon);
 			if (!pW) return;
 
-			int nAmmoX = (int) ((float)m_AmmoBasePos.x * xRatio);
-			int nAmmoY = (int) ((float)m_AmmoBasePos.y * yRatio);
+			int nAmmoX = VRInsetX((int) ((float)m_AmmoBasePos.x * xRatio));
+			int nAmmoY = VRInsetY((int) ((float)m_AmmoBasePos.y * yRatio));
 			if (m_bUseAmmoBar && !pW->bInfiniteAmmo)
 			{
 				fOrigin = { (float)nAmmoX, (float)nAmmoY };
 
 				g_pLTClient->TransformSurfaceToSurfaceTransparent(hScreen, m_hHUDAmmo, &fOrigin, (nAmmoX + m_AmmoBarOffset.x) - m_rcAmmoHUD.right, nAmmoY + m_AmmoBarOffset.y, 0, fUIScale, fUIScale, hTransColor);
                 //g_pLTClient->DrawSurfaceToSurfaceTransparent(hScreen, m_hHUDAmmo, NULL, (nAmmoX + m_AmmoBarOffset.x) - m_rcAmmoHUD.right, nAmmoY + m_AmmoBarOffset.y, hTransColor);
+			}
+
+			// THE AMMO COUNT AT THE HEALTH BARS' SCALE, IN VR. The default layout
+			// shows ammo as TEXT and health and armor as BARS, and only the bars'
+			// art is scaled (by UIScale x VRHudScale) - the text stays at the
+			// font's own pixel size and the icon at the bitmap's, so in the
+			// headset the counter came out a fraction of the health block's size
+			// and barely readable. So in VR the whole ammo cluster - icon, text
+			// and their authored offsets - scales by the same factor around the
+			// ammo anchor. VRAmmoScale (default 1) multiplies it. Flat: untouched.
+			static VarTrack s_vtVRAmmoScale;
+			if (!s_vtVRAmmoScale.IsInitted()) s_vtVRAmmoScale.Init(g_pLTClient, "VRAmmoScale", LTNULL, 1.0f);
+			const float fAmmoK = VRShared::IsLive()
+				? fUIScale * ((s_vtVRAmmoScale.GetFloat() > 0.0f) ? s_vtVRAmmoScale.GetFloat() : 1.0f)
+				: 0.0f;
+			if (fAmmoK > 0.0f)
+			{
+				if (m_hAmmoIcon)
+				{
+					// Scaled like the text below: the rotate-and-scale call drew
+					// nothing for this small bitmap at the desk.
+					uint32 nIW = 0, nIH = 0;
+					g_pLTClient->GetSurfaceDims(m_hAmmoIcon, &nIW, &nIH);
+					const int ix = nAmmoX + (int)((float)m_AmmoIconOffset.x * fAmmoK);
+					const int iy = nAmmoY + (int)((float)m_AmmoIconOffset.y * fAmmoK);
+					LTRect rcSrcI(0, 0, (int)nIW, (int)nIH);
+					LTRect rcDstI(ix, iy, ix + (int)((float)nIW * fAmmoK), iy + (int)((float)nIH * fAmmoK));
+					if (nIW && nIH)
+						g_pLTClient->ScaleSurfaceToSurfaceTransparent(hScreen, m_hAmmoIcon, &rcDstI, &rcSrcI, kTransBlack);
+				}
+				if (m_bUseAmmoText && !pW->bInfiniteAmmo && g_pForeFont)
+				{
+					char str[24];
+					int nAmmoInClip = g_pGameClientShell->GetWeaponModel()->GetAmmoInClip();
+					int nAmmo = m_pnAmmo[m_nCurrentAmmo] - nAmmoInClip;
+					sprintf(str,"%d/%d", nAmmoInClip, nAmmo < 0 ? 0 : nAmmo);
+					if (!m_hVRAmmoStr || strcmp(str, m_szVRAmmo) != 0)
+					{
+						HSTRING hStr = g_pLTClient->CreateString(str);
+						const LTIntPt sz = g_pForeFont->GetTextExtents(hStr);
+						g_pLTClient->FreeString(hStr);
+						const int w = sz.x + 2, h = sz.y + 2;
+						if (!m_hVRAmmoStr || w > m_nVRAmmoW || h > m_nVRAmmoH)
+						{
+							if (m_hVRAmmoStr) g_pLTClient->DeleteSurface(m_hVRAmmoStr);
+							m_hVRAmmoStr = g_pLTClient->CreateSurface(w, h);
+							m_nVRAmmoW = w; m_nVRAmmoH = h;
+						}
+						if (m_hVRAmmoStr)
+						{
+							LTRect rcAll(0, 0, m_nVRAmmoW, m_nVRAmmoH);
+							g_pOptimizedRenderer->FillRect(m_hVRAmmoStr, &rcAll, kTransBlack);
+							// The drop shadow, far enough off black that the key
+							// leaves it; the text WHITE - a font draws into a
+							// surface uncoloured, so the tint goes on at the blit.
+							g_pForeFont->Draw(str, m_hVRAmmoStr, 1, 1, LTF_JUSTIFY_LEFT, SETRGB(48,48,48));
+							g_pForeFont->Draw(str, m_hVRAmmoStr, 0, 0, LTF_JUSTIFY_LEFT, kWhite);
+							g_pLTClient->OptimizeSurface(m_hVRAmmoStr, kTransBlack);
+							strcpy(m_szVRAmmo, str);
+						}
+					}
+					if (m_hVRAmmoStr)
+					{
+						const int tx = nAmmoX + (int)((float)m_AmmoTextOffset.x * fAmmoK);
+						const int ty = nAmmoY + (int)((float)m_AmmoTextOffset.y * fAmmoK);
+						LTRect rcSrc(0, 0, m_nVRAmmoW, m_nVRAmmoH);
+						LTRect rcDst(tx, ty, tx + (int)((float)m_nVRAmmoW * fAmmoK), ty + (int)((float)m_nVRAmmoH * fAmmoK));
+						// The layout's ammo tint, as the engine's 2D colour (a
+						// multiply on the blit), then back to white for the rest.
+						g_pLTClient->SetOptimized2DColor(hAmmoTint ? hAmmoTint : kWhite);
+						g_pLTClient->ScaleSurfaceToSurfaceTransparent(hScreen, m_hVRAmmoStr, &rcDst, &rcSrc, kTransBlack);
+						g_pLTClient->SetOptimized2DColor(kWhite);
+					}
+				}
+				return;
 			}
 
 			if (m_hAmmoIcon)
@@ -2706,6 +2855,12 @@ void CPlayerStats::DestroyAmmoSurfaces()
         g_pLTClient->DeleteSurface (m_hAmmoIcon);
     m_hAmmoIcon = LTNULL;
 
+	if (m_hVRAmmoStr)
+        g_pLTClient->DeleteSurface (m_hVRAmmoStr);
+    m_hVRAmmoStr = LTNULL;
+	m_nVRAmmoW = m_nVRAmmoH = 0;
+	m_szVRAmmo[0] = 0;
+
 	if (m_hAmmoFull)
         g_pLTClient->DeleteSurface (m_hAmmoFull);
     m_hAmmoFull = LTNULL;
@@ -3366,6 +3521,27 @@ void CPlayerStats::DrawCrosshair(HSURFACE hScreen, int nCenterX,
 
 	WEAPON* pWeaponData = g_pWeaponMgr->GetWeapon(m_nCurrentWeapon);
 	if (!pWeaponData) return;
+
+	// THE STRAY WHITE '+', AND ONLY IT.
+	//
+	// This is the game's own crosshair, blitted at the centre of the screen -
+	// and the centre of the screen stopped meaning "where the shot goes" the
+	// moment the weapon started following the controller instead of the head.
+	// The VR world marker says that now, so this stands down.
+	//
+	// GATED HERE, at the last two draws, and not at the call site: everything
+	// above this point is the ACTIVATION test, which decides the gadget and
+	// innocent icons AND sets m_bDrawingGadgetActivate, read elsewhere through
+	// DrawingActivateGadget(). Skipping the whole routine - the first version
+	// of this fix - silently took "you can use your lockpick on this" out of
+	// the game along with the cross.
+	//
+	// The activate and innocent icons ARE still drawn at screen centre. They
+	// carry information the red dot does not, and they are computed on the
+	// VIEW axis, so in VR they answer "what am I looking at", not "what am I
+	// pointing at". Left in deliberately, and the first thing to look at if a
+	// mark still shows up near a usable object.
+	if (g_pGameClientShell->VRHidesGameCrosshair()) return;
 
 	if (pWeaponData->bLooksDangerous)
 	{
@@ -4180,7 +4356,7 @@ void CPlayerStats::DrawBoundWeapons(HSURFACE hScreen)
 	float fUIScale = g_pInterfaceResMgr->GetUIScale();
 
 	int w = (int) g_pInterfaceResMgr->GetScreenWidth();
-	int y = (int) ((float)(m_nIconSize * fUIScale) / 1.5f);
+	int y = VRInsetY((int) ((float)(m_nIconSize * fUIScale) / 1.5f));
 
 	LTFloatPt fOrigin = { 0.0f , 0.0f };
 
@@ -4208,7 +4384,7 @@ void CPlayerStats::DrawBoundWeapons(HSURFACE hScreen)
 				m_fIconOffset[i] = scaledIconSize;
 
 			// Note: Obvious, but all weapon bounds are located on the immediate right of your screen. 
-			int x = w-(int)m_fIconOffset[i];
+			int x = VRInsetX(w-(int)m_fIconOffset[i]);
 
 			fOrigin = { (float)x , (float)y };
 
@@ -4217,11 +4393,14 @@ void CPlayerStats::DrawBoundWeapons(HSURFACE hScreen)
 			if (GetConsoleInt("BindingNumbers",1) > 0)
 			{
 				
+				// The binding number scales with its icon; drawn 1:1 it was
+				// unreadable in a headset where the icon was not.
+				LTFloatPt fNumOrigin = { 0.0f, 0.0f };
 				g_pLTClient->SetOptimized2DBlend(LTSURFACEBLEND_MASK);
 				g_pLTClient->SetOptimized2DColor(hTextColor);
-				g_pLTClient->DrawSurfaceToSurface(hScreen,m_hNumberSurf[i],LTNULL,x+nTextOffset+1,y+1);
+				g_pLTClient->TransformSurfaceToSurfaceTransparent(hScreen,m_hNumberSurf[i],&fNumOrigin,x+nTextOffset+1,y+1,0,fUIScale,fUIScale,kTransBlack);
 				g_pLTClient->SetOptimized2DBlend(LTSURFACEBLEND_ADD);
-				g_pLTClient->DrawSurfaceToSurface(hScreen,m_hNumberSurf[i],LTNULL,x+nTextOffset,y);
+				g_pLTClient->TransformSurfaceToSurfaceTransparent(hScreen,m_hNumberSurf[i],&fNumOrigin,x+nTextOffset,y,0,fUIScale,fUIScale,kTransBlack);
 				g_pLTClient->SetOptimized2DColor(kWhite);
 				g_pLTClient->SetOptimized2DBlend(LTSURFACEBLEND_ALPHA);
 			}

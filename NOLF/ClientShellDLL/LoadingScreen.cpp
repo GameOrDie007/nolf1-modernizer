@@ -420,6 +420,36 @@ LTBOOL CLoadingScreen::Update()
 	if ((m_eCurState != STATE_ACTIVE) && (m_eCurState != STATE_SHOW))
 		return LTFALSE;
 
+	// THIS RUNS ON ITS OWN THREAD, AND THE MANAGERS IT USES BELONG TO ANOTHER.
+	//
+	// RunThread loops on Update() every 10 ms while the main thread loads a
+	// world. If anything terms the interface managers during that window, the
+	// next call through here dereferences a pointer that has just been nulled,
+	// on a thread nobody is watching. Measured rather than guessed - this is
+	// the crash the focus-stealing chain arm produces, resolved from its own
+	// address by tools/symbolize.ps1:
+	//
+	//   CButeMgr::GetVector          ButeMgr.cpp:2092   <- m_bSuccess = true
+	//   CLayoutMgr::GetShadeColor    LayoutMgr.cpp:469
+	//   CLoadingScreen::RunThread    LoadingScreen.cpp:404
+	//   CLoadingScreen::ThreadBootstrap
+	//
+	// "access violation WRITING address 00000019" is the giveaway: 0x19 is
+	// the offset of m_bSuccess inside the CButeMgr held BY VALUE in a
+	// CLayoutMgr whose this is null. CLayoutMgr::Term sets g_pLayoutMgr to
+	// LTNULL (LayoutMgr.cpp:427) and the GetShadeColor call below goes
+	// straight through it with no check, as stock code always has.
+	//
+	// Not our bug, and this port makes it far likelier: the engine frees and
+	// reloads the render DLL on EVERY focus loss and gain, so an alt-tab, a
+	// notification or a streaming overlay landing on a loading screen walks
+	// into it. Two crashes in one night of chain arms, both here.
+	//
+	// Degrade, never crash (the project rules rule 3). A skipped loading-screen frame
+	// is invisible; the alternative is losing the session.
+	if (!g_pLayoutMgr || !g_pInterfaceMgr || !g_pInterfaceResMgr || !g_pLTClient)
+		return LTFALSE;
+
 	g_pLTClient->ClearScreen(LTNULL, CLEARSCREEN_SCREEN | CLEARSCREEN_RENDER);
 	// Mmm..  Triple dimensional...
 	g_pLTClient->Start3D();
@@ -556,6 +586,11 @@ LTBOOL CLoadingScreen::Show(LTBOOL bRun)
 
 	// Update once so the screen's showing
 	Update();
+
+	// The update above filled the interface list with this screen's card; hand
+	// it to the renderer now, from this thread, before the loading thread
+	// starts drawing it. See CGameClientShell::VRPublishLoadingScreen.
+	g_pGameClientShell->VRPublishLoadingScreen();
 
 	// Start updating if they wanted it to..
 	if (bRun)

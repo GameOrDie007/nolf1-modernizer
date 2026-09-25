@@ -166,6 +166,14 @@ class CWeaponFX : public CSpecialFX
         LTBOOL IsBulletTrailWeapon();
 
         LTVector CalcFirePos(LTVector vFirePos);
+
+		// WHERE THE SHOT LOOKS LIKE IT CAME OUT OF, which is not where the
+		// engine fires it from. m_vFirePos is the HAND; this is the barrel.
+		// See the implementation for why they are different and which effects
+		// want which. Falls back to m_vFirePos for anyone else's shot.
+		LTVector VRMuzzleOrFirePos() const;
+		// Prints the model's own barrel node beside the authored MuzzlePos.
+		void     VRNodeProbe() const;
 };
 
 #endif // __WEAPON_FX_H__

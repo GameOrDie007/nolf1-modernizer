@@ -361,8 +361,9 @@ void CFolderJukebox::UpdateHelpText()
 	// Build out string
 	HSTRING hHelpTxt = g_pLTClient->FormatString(IDS_JUKEBOX_NOW_PLAYING, m_sCurrentSong.c_str());
 	
-	int nWidth = m_HelpRect.right - m_HelpRect.left;
-	int nHeight = m_HelpRect.bottom - m_HelpRect.top;
+	const float fHS = HelpScale();
+	int nWidth = (int)((m_HelpRect.right - m_HelpRect.left) * fHS);
+	int nHeight = (int)((m_HelpRect.bottom - m_HelpRect.top) * fHS);
 
 	// Setup the rect!
 	LTRect rect(0, 0, nWidth, nHeight);

@@ -18,6 +18,8 @@ namespace
 }
 
 extern VarTrack	g_vtSubtitles;
+#include "VRShared.h"
+bool VRSubtitlesOn();		// Subtitle.cpp
 extern VarTrack g_vtHUDLayout;
 extern VarTrack g_vtQuickSwitch;
 
@@ -58,6 +60,12 @@ LTBOOL CFolderGame::Build()
 
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
+	// Measured against this page's labels (CBaseFolder::LabelColumn): the
+	// authored ColumnWidth is too narrow for the scaled font sheets.
+	{
+		static const int kLabels[] = { IDS_DISPLAY_SUBTITLES, IDS_DISPLAY_GORE, IDS_FADEBODIES, IDS_ADVCONTROLS_RUNLOCK, IDS_DIFFICULTY, IDS_HUDLAYOUT, IDS_HEADBOB, IDS_WEAPONSWAY, IDS_PICKUP_MSG_DUR, IDS_OBJECTIVE_MSGS, IDS_QUICK_SWITCH };
+		kGap = LabelColumn(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	//crosshair menu
 	AddTextItem(IDS_CONTROLS_CROSSHAIR, FOLDER_CMD_CROSSHAIR, IDS_HELP_CROSSHAIRMENU);
@@ -150,6 +158,8 @@ void CFolderGame::OnFocus(LTBOOL bFocus)
 		m_nDifficulty = g_pGameClientShell->GetDifficulty();
 		m_bFadeBodies = g_pGameClientShell->GetFadeBodies();
 		m_nSubtitles = (int)g_vtSubtitles.GetFloat();
+		// In a headset this row is the VR caption switch - see Subtitle.cpp.
+		if (VRShared::IsLive()) m_nSubtitles = VRSubtitlesOn() ? 1 : 0;
 		m_bAlwaysRun = pSettings->RunLock();
 
 		m_nLayout = (int)g_vtHUDLayout.GetFloat();
@@ -168,7 +178,10 @@ void CFolderGame::OnFocus(LTBOOL bFocus)
 		UpdateData();
 
 		pSettings->SetBoolVar("Gore",m_bGore);
-		g_vtSubtitles.WriteFloat((LTFLOAT)m_nSubtitles);
+		if (VRShared::IsLive())
+			WriteConsoleFloat("VRSubtitles", (LTFLOAT)m_nSubtitles);
+		else
+			g_vtSubtitles.WriteFloat((LTFLOAT)m_nSubtitles);
 		g_vtHUDLayout.WriteFloat((LTFLOAT)m_nLayout);
 		WriteConsoleInt("Difficulty",m_nDifficulty);
 		g_pGameClientShell->SetDifficulty((GameDifficulty)m_nDifficulty);

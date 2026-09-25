@@ -27,6 +27,7 @@
 #include "MsgIDs.h"
 #include "PlayerShared.h"
 #include "VolumeBrushFX.h"
+#include "VRLog.h"
 
 extern CGameClientShell* g_pGameClientShell;
 extern CClientButeMgr* g_pClientButeMgr;
@@ -657,6 +658,7 @@ void CCharacterFX::UpdateSounds()
 	{
 		if (g_pLTClient->IsDone(m_hDialogueSnd))
 		{
+			VRLog::Msg("VRLip: dialogue handle %p reported DONE by the engine", (void*)m_hDialogueSnd);
 			g_pLTClient->KillSound(m_hDialogueSnd);
 		 m_hDialogueSnd = LTNULL;
 
@@ -2308,6 +2310,28 @@ HLTSOUND CCharacterFX::PlayLipSyncSound(char* szSound, LTFLOAT fRadius, LTBOOL &
 		LTFLOAT fDuration = -1.0f;
 		g_pLTClient->GetSoundDuration(hSound, &fDuration);
 		g_pInterfaceMgr->ShowSubtitle(nStringId, vPos, fRadius, fDuration);
+	}
+
+	// VR DIAGNOSTIC. Every spoken line in the game comes through here, from
+	// the lip-sync node control and from the plain dialogue message alike.
+	// Log what was asked for and what came back, with where the speaker
+	// stands against the camera, so "no voice" can be read as: never asked,
+	// refused by the engine, or out of earshot.
+	{
+		LTVector vSpk, vCam;
+		g_pLTClient->GetObjectPos(m_hServerObject, &vSpk);
+		vCam.Init();
+		if (g_pGameClientShell->GetCamera())
+			g_pLTClient->GetObjectPos(g_pGameClientShell->GetCamera(), &vCam);
+		LTFLOAT fDur = -1.0f;
+		if (hSound) g_pLTClient->GetSoundDuration(hSound, &fDur);
+		VRLog::Msg("VRLip: PLAY '%s' radius %.0f flags 0x%x -> handle %p duration %.2f"
+				   "  dist-to-camera %.0f extcam %d camlistener %d clientlocal %d subtitle %d",
+				   szSound, fRadius, (unsigned)dwFlags, (void*)hSound, fDur,
+				   (vSpk - vCam).Mag(),
+				   (int)g_pGameClientShell->IsUsingExternalCamera(),
+				   (int)g_pGameClientShell->IsCameraListener(),
+				   (int)((dwFlags & PLAYSOUND_CLIENTLOCAL) != 0), (int)bSubtitle);
 	}
 
 	return hSound;

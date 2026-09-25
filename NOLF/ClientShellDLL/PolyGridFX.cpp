@@ -13,8 +13,10 @@
 #include "stdafx.h"
 #include "PolyGridFX.h"
 #include "Plasma.h"
+#include "VRLog.h"
 #include "iltclient.h"
 #include "ClientServerShared.h"
+#include "VRPrims.h"
 #include "GameClientShell.h"
 #include "GameSettings.h"
 
@@ -242,7 +244,10 @@ LTBOOL CPolyGridFX::Update()
 
 	// Don't update if not drawn :)
 
-	if (!(m_pClientDE->GetObjectFlags(m_hObject) & FLAG_WASDRAWN) && !m_bAlwaysUpdate)
+	// FLAG_WASDRAWN is set by the RENDERER, and only the retail one sets it.
+	// Under ours the water would never move. See VRPrims_Active.
+	if (!(m_pClientDE->GetObjectFlags(m_hObject) & FLAG_WASDRAWN) && !m_bAlwaysUpdate
+		&& !VRPrims_Active())
 	{
         return LTTRUE;
 	}
@@ -463,6 +468,28 @@ void CPolyGridFX::UpdatePlasma()
 
 	m_fCount += 50.0f * g_pGameClientShell->GetFrameTime();
     count = (uint8)m_fCount;
+
+	// HOW FAST IS THE WAVE REALLY ADVANCING? Retail's pool bounces at 0.55 Hz
+	// and ours at 0.16 - measured off the tester's two clips - and this is the only
+	// clock in the thing. 50 counts a second through a 256-entry table holding
+	// three sine cycles is 0.586 Hz, so if the count is not advancing at 50 a
+	// second the frame time it is given is not what it thinks.
+	{
+		static float s_fSaid = -100.0f, s_fPrevCount = 0.0f;
+		static int   s_nCalls = 0;
+		const float fNow = g_pLTClient->GetTime();
+		++s_nCalls;
+		if (s_fSaid < -99.0f) { s_fSaid = fNow; s_fPrevCount = m_fCount; s_nCalls = 0; }
+		else if (fNow - s_fSaid >= 1.0f)
+		{
+			VRLog::Msg("PolyGrid plasma: count advanced %.1f in %.2f s (%.1f/s,"
+				" wanted 50) over %d updates, frame time %.2f ms",
+				m_fCount - s_fPrevCount, fNow - s_fSaid,
+				(m_fCount - s_fPrevCount) / (fNow - s_fSaid), s_nCalls,
+				1000.0f * g_pGameClientShell->GetFrameTime());
+			s_fSaid = fNow; s_fPrevCount = m_fCount; s_nCalls = 0;
+		}
+	}
 
 	// Randomize the poly grid values.
 	m_pClientDE->GetPolyGridInfo(m_hObject, &pData, &width, &height, &pColorTable);

@@ -73,9 +73,21 @@ class CVehicleMgr
 	
 	CCameraOffsetMgr* GetModelOffsetMgr() { return &m_VehicleModelOffsetMgr; }
 
+	// The player-view vehicle (snow_pv / moto_pv) and its windshield, for the
+	// VR publish path: both are FLAG_REALLYCLOSE client objects that the
+	// camera sphere never finds, exactly like the view weapon.
+	HOBJECT		GetVehicleModel() const       { return m_hVehicleModel; }
+	HOBJECT		GetVehicleAttachModel() const { return m_hVehicleAttachModel; }
+
 	void		SetPhysicsModel(PlayerPhysicsModel eModel, LTBOOL bDoPreSet=LTTRUE);
 
 	void		AdjustCameraRoll(LTFLOAT & fRoll);
+
+	// VR physical steering: the handlebar is the line between the two
+	// controllers. Returns LTTRUE with the bar's angle (radians, positive
+	// is a RIGHT turn) while the player is holding the bars.
+	LTBOOL		VRSteerBar(LTFLOAT & fBarRad);
+	LTBOOL		VRSteerStick(LTFLOAT & fFrac);
 
   protected:
 
@@ -178,6 +190,11 @@ class CVehicleMgr
 	LTBOOL			m_bKeyboardTurning;
 	LTFLOAT			m_fHandlebarRoll;
 	LTFLOAT			m_fHeadYaw;
+
+	LTFLOAT			m_fVRBar;			// smoothed handlebar angle, radians
+	LTBOOL			m_bVRSteering;		// hands were on the bars last frame
+	LTFLOAT			m_fVRStick;			// smoothed analog stick wheel, radians
+	LTBOOL			m_bVRJumpWas;		// jump held last update (one wheelie per press)
 
 	enum TurnDirection { TD_LEFT, TD_CENTER, TD_RIGHT };
 	TurnDirection	m_eMouseTurnDirection;
