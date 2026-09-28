@@ -165,9 +165,10 @@ VarTrack	g_vtVRVehicleSteerSmooth;
 // no turn. Found at the desk on 16 September, mounting T10S01's sled with
 // the fake host: "physics model -> SNOWMOBILE" and then a yaw that never
 // moved because the sled never did.
+bool VRTunerOwnsCommand(int nCmd);	// GameClientShell.cpp: the tuner's keys
 static LTBOOL VehCmdOn(int nCmd)
 {
-	return g_pLTClient->IsCommandOn(nCmd) || VRShared::CommandOn(nCmd);
+	return (g_pLTClient->IsCommandOn(nCmd) && !VRTunerOwnsCommand(nCmd)) || VRShared::CommandOn(nCmd);
 }
 
 VarTrack	g_vtVehicleMaxHeadOffsetX;

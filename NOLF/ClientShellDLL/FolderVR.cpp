@@ -57,7 +57,10 @@ CFolderVR::CFolderVR()
 	m_bVRCaptions  = LTTRUE;
 	m_nAimDotSize  = 20;
 	m_bBigMenuText = LTTRUE;
-	m_bShowBody    = LTFALSE;
+	m_bShowBody    = LTTRUE;
+	m_bMirrorBody  = LTTRUE;
+	m_nResolution  = 100;
+	m_bSpectator   = LTTRUE;
 }
 
 CFolderVR::~CFolderVR()
@@ -81,6 +84,21 @@ LTBOOL CFolderVR::Build()
 	LTFLOAT yr = g_pInterfaceResMgr->GetYRatio();
 	kGap *= yr;
 	kWidth *= yr;
+
+	// The value column clears the widest label actually drawn (as on every
+	// other options page): "Steady desktop view (restart)" ran into its ON.
+	{
+		static const char* const kLabels[] = {
+			"Head bob", "Weapon sway", "Snap turning", "Turn speed", "Steer with both grips",
+			"Leftorium (left-handed)", "Swap sticks", "Gun follows hand", "Gun size",
+			"Hand movement", "Aim dot", "VR captions", "Aim dot size", "Show body (restart)",
+			"See yourself in mirrors (restart)",
+			"Resolution % (restart)", "Steady desktop view (restart)", "Large menu text",
+			"Debug: god mode", "Debug: walk through walls", "Debug: all weapons+gear",
+			"Debug: kill all enemies", "Debug: all missions", "Debug: show position",
+			"Debug: skip level (R grip + B)" };
+		kGap = LabelColumnText(kGap, kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
+	}
 
 	// RECENTER, AT THE TOP. It was both thumbsticks clicked together, which is
 	// also Virtual Desktop's own overlay, and the VR host treated the same
@@ -162,6 +180,29 @@ LTBOOL CFolderVR::Build()
 	pToggle->SetOnString(IDS_ON);
 	pToggle->SetOffString(IDS_OFF);
 
+	// YOUR OWN BODY IN MIRRORS (StubMirrorBody), head and all - and only in
+	// mirrors. The same renderer switch kind as the body above: next launch.
+	pToggle = AddToggle("See yourself in mirrors (restart)", 0, kGap, &m_bMirrorBody);
+	pToggle->SetOnString(IDS_ON);
+	pToggle->SetOffString(IDS_OFF);
+
+	// PERCENT OF THE HEADSET'S OWN RESOLUTION. The game's screen size is fixed
+	// when it starts, so the launcher applies this on the next launch
+	// (play-vr.ps1 reads it from autoexec.cfg with the headset's recommended
+	// size); the label says so. 100 is the headset's size; lower is lighter on
+	// a weaker GPU.
+	pSlider = AddSlider("Resolution % (restart)", 0, kGap, kWidth, &m_nResolution);
+	pSlider->SetSliderRange(60, 125);
+	pSlider->SetSliderIncrement(5);
+
+	// THE DESKTOP VIEW for a stream or a recording: on, the monitor shows a
+	// steadied, level cut-out of the right eye that follows the head's turns
+	// but not its wobble; off, the eye as it is. The host sets it up at
+	// launch, so the label says restart.
+	pToggle = AddToggle("Steady desktop view (restart)", 0, kGap, &m_bSpectator);
+	pToggle->SetOnString(IDS_ON);
+	pToggle->SetOffString(IDS_OFF);
+
 	pToggle = AddToggle("Large menu text", 0, kGap, &m_bBigMenuText);
 	// VR_DEBUG_TOOLS - testing aids, not features. All off by default, all
 	// removable together: delete this block, the members in FolderVR.h, the
@@ -226,7 +267,13 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_bVRCaptions  = (CVarF("VRCaptions", 1.0f) > 0.0f);
 		m_nAimDotSize  = (int)(10.0f * CVarF("VRAimMarkerWorldSize", 2.0f));
 		m_bBigMenuText = (CVarF("VRMenuBigSubs", 1.0f) > 0.0f);
-		m_bShowBody    = (CVarF("StubBody", 0.0f) > 0.0f);
+		m_bShowBody    = (CVarF("VRShowBody", 1.0f) > 0.0f);
+		m_bMirrorBody  = (CVarF("StubMirrorBody", 1.0f) > 0.0f);
+		m_nResolution  = (int)(CVarF("VRResolution", 100.0f) + 0.5f);
+		m_nResolution  = ((m_nResolution + 2) / 5) * 5;
+		if (m_nResolution < 60)  m_nResolution = 60;
+		if (m_nResolution > 125) m_nResolution = 125;
+		m_bSpectator   = (CVarF("VRSpectator", 1.0f) > 0.0f);
 
 		// Clamp what came out of the config into the ranges the controls
 		// offer. A slider handed a value outside its range draws its thumb
@@ -268,7 +315,10 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleInt  ("VRCaptions",      (int)m_bVRCaptions);
 		WriteConsoleFloat("VRAimMarkerWorldSize", (LTFLOAT)m_nAimDotSize / 10.0f);
 		WriteConsoleInt  ("VRMenuBigSubs",   (int)m_bBigMenuText);
-		WriteConsoleInt  ("StubBody",        (int)m_bShowBody);
+		WriteConsoleInt  ("VRShowBody",      (int)m_bShowBody);
+		WriteConsoleInt  ("StubMirrorBody",  (int)m_bMirrorBody);
+		WriteConsoleInt  ("VRResolution",    m_nResolution);
+		WriteConsoleInt  ("VRSpectator",     (int)m_bSpectator);
 
 		// The engine rewrites this file on exit anyway, but not until then -
 		// and a player who sets head bob to zero and is killed by a crash

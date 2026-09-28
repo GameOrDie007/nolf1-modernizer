@@ -89,7 +89,11 @@ LTBOOL CBaseSelectionFolder::Build()
 
     m_pName = CreateTextItem(IDS_SPACER,LTNULL,LTNULL,LTTRUE,pFont);
     m_pName->Enable(LTFALSE);
-	m_pName->SetFixedWidth(m_NameRect.right - m_NameRect.left);
+	// Wrapped at the layout's width SCALED like the font: the name draws
+	// with the scaled font straight to the screen, so the 640x480 width
+	// broke "Rendezvous in Hamburg" into three lines under the photo. (The
+	// description is a static text drawn at layout size and scaled whole.)
+	m_pName->SetFixedWidth((uint32)((m_NameRect.right - m_NameRect.left) * g_pInterfaceResMgr->GetYRatio()));
     AddFixedControl(m_pName,NamePos,LTFALSE);
 
 
@@ -196,8 +200,16 @@ LTBOOL CBaseSelectionFolder::Render(HSURFACE hDestSurf)
 
 
 
+	// SCALED WITH THE LAYOUT, as the loading screen's photo is. Drawn at its
+	// own pixel size at a scaled position, the mission photo shrank as the
+	// menu resolution grew and sat on the mission names (VR, at the
+	// headset's resolution).
 	if (m_hPhotoSurf) {
-		g_pLTClient->DrawSurfaceToSurface(hDestSurf, m_hPhotoSurf, LTNULL, m_PhotoPos.x * yr + xo, m_PhotoPos.y * yr + yo);
+		uint32 nPW = 0, nPH = 0;
+		g_pLTClient->GetSurfaceDims(m_hPhotoSurf, &nPW, &nPH);
+		const int x0 = (int)(m_PhotoPos.x * yr) + xo, y0 = (int)(m_PhotoPos.y * yr) + yo;
+		LTRect destRect = { x0, y0, x0 + (int)(nPW * yr), y0 + (int)(nPH * yr) };
+		g_pLTClient->ScaleSurfaceToSurface(hDestSurf, m_hPhotoSurf, &destRect, LTNULL);
 	}
 /*	for (int slot = 0; slot < m_nNumSlots; slot++)
 	{

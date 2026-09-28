@@ -230,6 +230,30 @@ VarTrack g_vtVRHandFire;
 VarTrack g_vtVRGunAtHand;
 VarTrack g_vtVRArmIK;
 VarTrack g_vtVRBodyBack;
+VarTrack g_vtVRBodyBackEyes;
+VarTrack g_vtVRBodyArms;
+VarTrack g_vtVRBodyShoulderBack;
+VarTrack g_vtVRBodyStretch;
+VarTrack g_vtVRBodyPalmR;
+VarTrack g_vtVRBodyPalmU;
+VarTrack g_vtVRBodyPalmF;
+VarTrack g_vtVRBodyOffRoll;
+VarTrack g_vtVRBodyOffYaw;
+VarTrack g_vtVRBodyOffPitch;
+VarTrack g_vtVRBodyRightRoll;
+VarTrack g_vtVRBodyRPalmR;
+VarTrack g_vtVRBodyRPalmU;
+VarTrack g_vtVRBodyRPalmF;
+VarTrack g_vtVRHandTune;
+VarTrack g_vtVRBodyHandScale;
+VarTrack g_vtVRBodyGunGrip;
+VarTrack g_vtVRBodyGunHandIn;
+VarTrack g_vtVRBodyGunHandU;
+VarTrack g_vtVRBodyGunHandF;
+VarTrack g_vtVRBodyGripR;
+VarTrack g_vtVRBodyWrist;
+VarTrack g_vtVRBodyGripUp;
+VarTrack g_vtVRBodyGripFwd;
 VarTrack g_vtVRHandRoll;
 VarTrack g_vtVRHaptics;
 VarTrack g_vtVRWheelSize;
@@ -2085,6 +2109,97 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// depth behind the eyes - an adult head is roughly 19 cm front to back,
 	// hence 0.09. A cvar because only a headset can judge the last centimetre.
 	g_vtVRBodyBack.Init(g_pLTClient, "VRBodyBack", LTNULL, 0.09f);
+	// AND FURTHER BACK FOR THE EYES' BODY ONLY (Show body), in metres. At the
+	// head's own place the neck opening sits right under the eyes: looking
+	// down, you looked INTO the dress. Moved back, looking down shows the
+	// front of the chest and the belly. The mirror's body stays at VRBodyBack,
+	// so the reflection's head is where yours is. 0.25: at 0.15 the collar
+	// still showed looking straight down; at 0.25 it is chest, legs and boots
+	// at 80 degrees and legs and boots at 55 (desk, M04S01, 27 September).
+	// 0 SINCE THE BODY STANDS UNDER THE HEAD (VRBodyShoulderBack below): the
+	// eyes' copy set back on top of that left the arms short of the hands.
+	// Kept as a tuner - a non-zero value still sets the eyes' copy back.
+	g_vtVRBodyBackEyes.Init(g_pLTClient, "VRBodyBackEyes", LTNULL, 0.0f);
+	// HER SHOULDERS UNDER YOUR HEAD: metres behind the eye, along the ground,
+	// the body is moved to each frame. Her animation put them anywhere from
+	// level with the eye to 20 cm behind it by level and pose, and from 20 cm
+	// back the arms could not reach the controllers.
+	// Negative turns it off.
+	g_vtVRBodyShoulderBack.Init(g_pLTClient, "VRBodyShoulderBack", LTNULL, 0.08f);
+	// How far an arm may stretch past its own length to reach a controller:
+	// her arm is 53 cm, an adult's about 62.
+	g_vtVRBodyStretch.Init(g_pLTClient, "VRBodyStretch", LTNULL, 1.2f);
+	// The off hand's WRIST against its controller, metres along the
+	// controller's inner side, up and forward. F -0.07: the controller's point
+	// is in the palm, and a wrist put there held the whole hand out in front
+	// of the real one. The arm tuner's OFF HAND mode.
+	g_vtVRBodyPalmR.Init(g_pLTClient, "VRBodyPalmR", LTNULL, -0.075f);
+	g_vtVRBodyPalmU.Init(g_pLTClient, "VRBodyPalmU", LTNULL, -0.05f);
+	g_vtVRBodyPalmF.Init(g_pLTClient, "VRBodyPalmF", LTNULL, -0.15f);
+	// And its roll on top of the controller's, degrees (OFF TURN mode). 70 tuned; first a quarter
+	// turn counter-clockwise seen from behind the hand.
+	// Shoulder 0.08 and the palm offsets above were tuned in the headset that evening.
+	g_vtVRBodyOffRoll.Init(g_pLTClient, "VRBodyOffRoll", LTNULL, 160.0f);
+	// ...and its yaw (toward the inner side) and pitch (toward the controller's
+	// up), degrees - the hand is locked to the controller (OFF TURN mode).
+	g_vtVRBodyOffYaw.Init(g_pLTClient, "VRBodyOffYaw", LTNULL, 0.0f);
+	// Tuned in the headset, 27 September (hand tuner): roll 160, pitch -5, wrist 0.075 out,
+	// 0.05 down, 0.15 back. The left hand; the right has its own (below),
+	// tuned the same session.
+	g_vtVRBodyOffPitch.Init(g_pLTClient, "VRBodyOffPitch", LTNULL, -5.0f);
+	// THE RIGHT HAND HAS ITS OWN: its node frame is not the left's mirrored,
+	// and with the left hand's tuning mirrored the empty right hand sat half a
+	// turn over. Its roll (absolute, degrees; 265 tuned
+	// in the hand tuner) and its wrist against its controller,
+	// the same axes as the left's (in, up, forward, metres). Per SIDE, not per
+	// role: the Leftorium does not swap them.
+	g_vtVRBodyRightRoll.Init(g_pLTClient, "VRBodyRightRoll", LTNULL, 265.0f);
+	g_vtVRBodyRPalmR.Init(g_pLTClient, "VRBodyRPalmR", LTNULL, -0.075f);
+	g_vtVRBodyRPalmU.Init(g_pLTClient, "VRBodyRPalmU", LTNULL, -0.05f);
+	g_vtVRBodyRPalmF.Init(g_pLTClient, "VRBodyRPalmF", LTNULL, -0.15f);
+	// VRHandTune 1: the HAND tuner - both hands, where they sit on their
+	// controllers and their roll, and nothing else (see VRHandTuneStep).
+	g_vtVRHandTune.Init(g_pLTClient, "VRHandTune", LTNULL, 0.0f);
+	// Her hands' size, both: her hands are a woman's and the guns are drawn
+	// at their real size, so they looked too large in her hands (headset, 27
+	// September). Scaled about the wrist. The hand tuner's HAND SIZE page.
+	g_vtVRBodyHandScale.Init(g_pLTClient, "VRBodyHandScale", LTNULL, 1.0f);
+	// 1: the gun hand goes to the drawn gun's grip (the old way). 0: it stays
+	// on its controller where it was tuned, and the gun is fitted to it with
+	// the hand tuner's GUN page (VRGripOff*@gun) - "the hands sit where I
+	// think they should sit".
+	g_vtVRBodyGunGrip.Init(g_pLTClient, "VRBodyGunGrip", LTNULL, 0.0f);
+	// THE HAND THAT HOLDS A GUN sits this much further (metres: toward the
+	// other hand, up, forward along its controller) than the empty hand. The
+	// empty hand was tuned with nothing to see it against; with the P38 out the
+	// gun - placed where the real hand is - was the reference, and fitting the
+	// gun to the hand took it 10 cm back, 2 cm out and 1 cm down (hand tuner,
+	// 27 September): the hand was that far from the real one. So the gun hand
+	// goes there instead, and the gun keeps its own placement.
+	g_vtVRBodyGunHandIn.Init(g_pLTClient, "VRBodyGunHandIn", LTNULL, 0.02f);
+	g_vtVRBodyGunHandU.Init(g_pLTClient, "VRBodyGunHandU", LTNULL, 0.01f);
+	g_vtVRBodyGunHandF.Init(g_pLTClient, "VRBodyGunHandF", LTNULL, 0.10f);
+	// ...0.15 since the headset test (27 September): at 0.25, looking straight down
+	// showed barely the tips of the feet.
+	// HER ARMS ARE YOUR ARMS (Show body): bent to the controllers, the right
+	// hand on the gun's grip. 0 hides them, as the first version did; 1 shows
+	// forearms and hands only; 2, the whole arm, bent again from the set-back
+	// shoulder and stretched up to 1.4x to reach (1.2-1.3 at the desk).
+	// 0 BY DEFAULT: the game's arm and hand models are too low in detail to
+	// sell being your own hands up close. The eyes get
+	// the body without arms and the floating gun, with the support hand; the
+	// mirror keeps her arms. Better hands would need new models.
+	g_vtVRBodyArms.Init(g_pLTClient, "VRBodyArms", LTNULL, 0.0f);
+	// Her right wrist turned so the gun she holds lies along the real one.
+	g_vtVRBodyWrist.Init(g_pLTClient, "VRBodyWrist", LTNULL, 1.0f);
+	// Where on the gun her right hand closes: up the grip and along the barrel
+	// from the gun's own wrist node, world units. 0: the 3.5 tried at the desk was
+	// judged against hands set back with the body, and put the fist on the slide.
+	g_vtVRBodyGripUp.Init(g_pLTClient, "VRBodyGripUp", LTNULL, 0.0f);
+	g_vtVRBodyGripFwd.Init(g_pLTClient, "VRBodyGripFwd", LTNULL, 0.0f);
+	// ...and across it. All three are also kept PER GUN by the arm tuner's
+	// HAND mode (VRBodyGripUp@p38 ...), which wins over these.
+	g_vtVRBodyGripR.Init(g_pLTClient, "VRBodyGripR", LTNULL, 0.0f);
 	// Take the hand's ROLL as well as its yaw and pitch. Without it, turning
 	// the controller over does nothing to the gun.
 	g_vtVRHandRoll.Init(g_pLTClient, "VRHandRoll", LTNULL, 1.0f);
@@ -2434,6 +2549,16 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// menu and unreadable in a headset. Desk-verified across the menu tree;
 	// VRMenuBigSubs 0 is the way back if a page overruns its panel.
 	g_vtVRMenuBigSubs.Init(g_pLTClient, "VRMenuBigSubs", LTNULL, 1.0f);
+	// Registered so the engine saves it: the launcher reads it from
+	// autoexec.cfg on the next launch (Options > VR > Resolution %).
+	{
+		static VarTrack s_vtVRResolution;
+		s_vtVRResolution.Init(g_pLTClient, "VRResolution", LTNULL, 100.0f);
+		// The same for the desktop spectator view (Options > VR > Steady
+		// desktop view): the host reads it at launch.
+		static VarTrack s_vtVRSpectator;
+		s_vtVRSpectator.Init(g_pLTClient, "VRSpectator", LTNULL, 1.0f);
+	}
 	g_vtVRGunCentre.Init(g_pLTClient, "VRGunCentre", LTNULL, 1.0f);
 	g_vtVRRecoil.Init(g_pLTClient, "VRRecoil", LTNULL, 0.0f);
 	// -14.2: measured from the Walther's own barrel nodes at the desk under the
@@ -3432,8 +3557,27 @@ void CGameClientShell::PreLoadWorld(char *pWorldName)
 //
 // ----------------------------------------------------------------------- //
 
+static uint32 g_nVRWorldGen = 0;	// counts worlds entered; see VRBodyAnimate
+
+// THE TUNER'S KEYS ARE THE TUNER'S. While VRFlashTune is on, the commands the
+// game binds to the tuner's keys are ignored from the KEYBOARD - Left/Right
+// arrows turn, PgUp/PgDn look up/down, End centres the view (autoexec.cfg:
+// ##203 Left, ##205 Right, ##201 LookUp, ##209 LookDown, ##207 CenterView).
+// Up/Down, Home, Insert and Delete are unbound. The comment in the tuner said
+// these were suppressed; they never were, and tuning the arms turned the
+// player with every Left/Right press. The controllers'
+// own commands are not touched: the stick still walks and turns.
+bool VRTunerOwnsCommand(int nCmd)
+{
+	if (g_vtVRFlashTune.GetFloat() <= 0.0f && g_vtVRHandTune.GetFloat() <= 0.0f) return false;
+	return nCmd == COMMAND_ID_LEFT || nCmd == COMMAND_ID_RIGHT
+		|| nCmd == COMMAND_ID_LOOKUP || nCmd == COMMAND_ID_LOOKDOWN
+		|| nCmd == COMMAND_ID_CENTERVIEW;
+}
+
 void CGameClientShell::OnEnterWorld()
 {
+	++g_nVRWorldGen;
 	g_pLTClient->ResumeSounds();
 
 	g_pPhysicsLT->SetStairHeight(DEFAULT_STAIRSTEP_HEIGHT);
@@ -3630,6 +3774,117 @@ namespace
 static uint32 s_nFlagSeen = 0, s_nFlagClose = 0, s_nFlagTint = 0;
 static uint32 s_nFlagEnvMap = 0, s_nFlagDetail = 0, s_nFlagShadow = 0;
 static uint32 s_nFlagAnimTrans = 0, s_nFlagPortal = 0;
+// THE SUPPORT HAND. On while the OFF hand's grip is held with that controller
+// close to the gun hand and a pistol out: a hand is then drawn wrapped round
+// the other side of the grip - the pistol's own right hand, as the game
+// animates it gripping the gun, mirrored across the gun (see fShowMirror).
+// Purely a picture - the aim, the shot and the gun's placement never read it.
+// VRSupportHand 0 turns it off; VRSupportRangeCm is how close is "on the gun".
+static bool s_bVRSupport = false;
+
+// The pistols, by their player-view model: the four with a hand for the off
+// side animated onto the gun.
+static bool VRSupportWeaponOut(CWeaponModel& wm)
+{
+	const WEAPON* pW = wm.GetWeapon();
+	if (!pW || !pW->szPVModel[0]) return false;
+	const char* p = pW->szPVModel;
+	for (const char* q = p; *q; ++q) if (*q == '\\' || *q == '/') p = q + 1;
+	return !_stricmp(p, "Walther_pv.abc") || !_stricmp(p, "Luger_pv.abc")
+		|| !_stricmp(p, "S&W_pv.abc") || !_stricmp(p, "Contender_pv.abc");
+}
+
+// A node of one hand, by the name every NOLF view model gives it: wristR,
+// thumbR1..3, pinkyR1..4, ringR1..4, middleR1..4, pointerR1..4 and RwristVolY
+// (and the same with L). The forearm is not the hand and is left out. cSide
+// is 'l' or 'r'.
+static bool VRIsHandNode(const char* psz, char cSide)
+{
+	char s[32] = "";
+	strncpy(s, psz, 31);
+	for (char* c = s; *c; ++c) *c = (char)tolower((unsigned char)*c);
+	if (s[0] == cSide && !strcmp(s + 1, "wristvoly")) return true;
+	static const char* const kRoots[] = { "wrist", "thumb", "pinky", "ring", "middle", "pointer" };
+	for (int r = 0; r < 6; ++r)
+	{
+		const size_t n = strlen(kRoots[r]);
+		if (strncmp(s, kRoots[r], n) || s[n] != cSide) continue;
+		const char* d = s + n + 1;
+		while (*d >= '0' && *d <= '9') ++d;
+		if (!*d) return true;
+	}
+	return false;
+}
+
+// THE ARMS OF THE PLAYER'S BODY, for the first-person body: every node whose
+// name says arm, hand or neck (Right_armu_node, Right_arml_node, right_arml_hand_node
+// and the left ones on HERO_ACTION.ABC and her other outfits). Their triangles
+// are not drawn in the eyes - the view weapon is the hands - so looking down
+// shows a body, not a second pair of arms pointing somewhere else.
+static void VRBodyHideArms(HOBJECT hObj, VRModelInst& mi, bool bKeepArms)
+{
+	mi.nFlags |= VRMODEL_F_HIDENODES;
+	mi.nShowNodes[0] = mi.nShowNodes[1] = mi.nShowNodes[2] = mi.nShowNodes[3] = 0;
+	HMODELNODE hN = INVALID_MODEL_NODE, hNx = INVALID_MODEL_NODE;
+	uint32 nIdx = 0, nHit = 0;
+	char szAll[512] = ""; int nAll = 0;
+	while (nIdx < 128 && g_pLTClient->GetNextModelNode(hObj, hN, &hNx) == LT_OK)
+	{
+		hN = hNx;
+		char szN[64] = "";
+		g_pLTClient->GetModelNodeName(hObj, hN, szN, sizeof(szN));
+		char szL[64]; strncpy(szL, szN, 63); szL[63] = 0;
+		for (char* c = szL; *c; ++c) *c = (char)tolower((unsigned char)*c);
+		// ...and the NECK: with the head gone, looking down showed the inside
+		// of the collar, a stump right under the camera (desk, 27 September).
+		// ...but not the SHOULDERS (the *_armu_shoulder_node pair): cut there,
+		// the shoulders were ragged holes; kept, they are the round of the body.
+		// With her arms kept (VRBodyArms), only the neck goes.
+		const bool bArmNode = (strstr(szL, "arm") || strstr(szL, "hand")) && !strstr(szL, "shoulder");
+		// With her arms kept, the UPPER arms still go: the eyes' body is set
+		// back and the forearms are not (see VRBodyArmNodeMask), and an upper
+		// arm spanning the two stretched into a sleeve across the view
+		// (desk, 27 September). Forearms and hands, as most VR games show.
+		const bool bUpperArm = strstr(szL, "armu") && !strstr(szL, "shoulder");
+		if ((bArmNode && !bKeepArms) || (bUpperArm && bKeepArms && g_vtVRBodyArms.GetFloat() < 1.5f)
+			|| strstr(szL, "neck"))
+		{
+			mi.nShowNodes[nIdx >> 5] |= (1u << (nIdx & 31));
+			++nHit;
+		}
+		if (nAll < 480) nAll += _snprintf(szAll + nAll, sizeof(szAll) - nAll, "%s%s", nIdx ? " " : "", szN);
+		++nIdx;
+	}
+	static int s_nSaid = 0;
+	if (s_nSaid < 2)
+	{
+		++s_nSaid;
+		VRLog::Msg("VRBody: %u of %u nodes are arms, hidden in the eyes. Nodes: %s", nHit, nIdx, szAll);
+	}
+}
+
+// Her FOREARM and HAND nodes (Right_arml_node, right_arml_hand_node...), as a
+// mask by node index: the eyes' body is set back without them, so the hands
+// stay on the controllers. The upper arms are hidden in the eyes.
+static void VRBodyArmNodeMask(HOBJECT hObj, uint32 nMask[4])
+{
+	nMask[0] = nMask[1] = nMask[2] = nMask[3] = 0;
+	HMODELNODE hN = INVALID_MODEL_NODE, hNx = INVALID_MODEL_NODE;
+	uint32 nIdx = 0;
+	while (nIdx < 128 && g_pLTClient->GetNextModelNode(hObj, hN, &hNx) == LT_OK)
+	{
+		hN = hNx;
+		char szL[64] = "";
+		g_pLTClient->GetModelNodeName(hObj, hN, szL, sizeof(szL));
+		for (char* c = szL; *c; ++c) *c = (char)tolower((unsigned char)*c);
+		if (strstr(szL, "arml") || strstr(szL, "hand"))
+			nMask[nIdx >> 5] |= (1u << (nIdx & 31));
+		++nIdx;
+	}
+}
+
+// The chrome map this world set with "EnvMap"; handed to our renderer.
+static char g_szVREnvMapName[128] = "";
 
 
 // Rotate one bone's node transform from where it pointed to where it now
@@ -3643,6 +3898,31 @@ static uint32 s_nFlagAnimTrans = 0, s_nFlagPortal = 0;
 // The published node is a 3x4 ROW-MAJOR matrix with the translation in the
 // fourth COLUMN - m[3], m[7], m[11] - which is the layout VRShared.h warns
 // about, and reading it the other way once cost a whole reconstruction.
+// The rotation taking direction o to direction w (Rodrigues, row-major, the
+// same sense as VRArmBone). Identity when they are already aligned.
+static void VRRotBetween(LTVector o, LTVector w, float R[9])
+{
+	R[0] = 1; R[1] = 0; R[2] = 0; R[3] = 0; R[4] = 1; R[5] = 0; R[6] = 0; R[7] = 0; R[8] = 1;
+	if (o.Mag() < 0.0001f || w.Mag() < 0.0001f) return;
+	o.Norm(); w.Norm();
+	// w.Cross(o), NOT o.Cross(w): LithTech's a.Cross(b) is the textbook b x a
+	// (ltvector.h). With o.Cross(w) every bone turned by its angle the WRONG
+	// way - small at the desk, 122 degrees in the headset, both upper arms up
+	// and in to her chin (headset video, 27 September).
+	LTVector ax = w.Cross(o);
+	const float fS = ax.Mag();
+	float fC = o.Dot(w);
+	if (fC > 1.0f) fC = 1.0f;
+	if (fC < -1.0f) fC = -1.0f;
+	if (fS < 0.0001f) return;
+	ax.Norm();
+	const float ang = (float)atan2(fS, fC);
+	const float c = (float)cos(ang), si = (float)sin(ang), t = 1.0f - c;
+	R[0] = t*ax.x*ax.x + c;       R[1] = t*ax.x*ax.y - si*ax.z; R[2] = t*ax.x*ax.z + si*ax.y;
+	R[3] = t*ax.x*ax.y + si*ax.z; R[4] = t*ax.y*ax.y + c;       R[5] = t*ax.y*ax.z - si*ax.x;
+	R[6] = t*ax.x*ax.z - si*ax.y; R[7] = t*ax.y*ax.z + si*ax.x; R[8] = t*ax.z*ax.z + c;
+}
+
 static void VRArmBone(VRModelNode& n,
 					  const LTVector& vOldA, const LTVector& vOldB,
 					  const LTVector& vNewA, const LTVector& vNewB)
@@ -3651,7 +3931,11 @@ static void VRArmBone(VRModelNode& n,
 	if (o.Mag() < 0.0001f || w.Mag() < 0.0001f) return;
 	o.Norm(); w.Norm();
 
-	LTVector ax = o.Cross(w);
+	// w.Cross(o), NOT o.Cross(w): LithTech's a.Cross(b) is the textbook b x a
+	// (ltvector.h). With o.Cross(w) every bone turned by its angle the WRONG
+	// way - small at the desk, 122 degrees in the headset, both upper arms up
+	// and in to her chin (headset video, 27 September).
+	LTVector ax = w.Cross(o);
 	const float fS = ax.Mag();
 	float fC = o.Dot(w);
 	if (fC > 1.0f) fC = 1.0f;
@@ -3686,7 +3970,123 @@ static void VRArmBone(VRModelNode& n,
 	n.m[8]=O[6]; n.m[9]=O[7]; n.m[10]=O[8];
 }
 
+// Stretch a node's mesh by s along the world direction d, about the node.
+static void VRNodeStretch(VRModelNode& n, LTVector d, float s)
+{
+	if (s <= 1.0001f || d.Mag() < 0.0001f) return;
+	d.Norm();
+	const float k = s - 1.0f;
+	const float S[9] = { 1 + k*d.x*d.x, k*d.x*d.y,     k*d.x*d.z,
+						 k*d.y*d.x,     1 + k*d.y*d.y, k*d.y*d.z,
+						 k*d.z*d.x,     k*d.z*d.y,     1 + k*d.z*d.z };
+	const float M[9] = { n.m[0], n.m[1], n.m[2], n.m[4], n.m[5], n.m[6], n.m[8], n.m[9], n.m[10] };
+	float O[9];
+	for (int r = 0; r < 3; ++r)
+		for (int c = 0; c < 3; ++c)
+			O[r*3+c] = S[r*3+0]*M[0*3+c] + S[r*3+1]*M[1*3+c] + S[r*3+2]*M[2*3+c];
+	n.m[0]=O[0]; n.m[1]=O[1]; n.m[2]=O[2];
+	n.m[4]=O[3]; n.m[5]=O[4]; n.m[6]=O[5];
+	n.m[8]=O[6]; n.m[9]=O[7]; n.m[10]=O[8];
+}
 
+// A body value PER GUN when the arm tuner has set one (VRBodyGripUp@p38), the
+// global otherwise.
+static float VRBodyPerGun(const char* pszBase, const char* pszSlug, VarTrack& vtGlobal)
+{
+	if (pszSlug && pszSlug[0])
+	{
+		char szN[128];
+		_snprintf(szN, sizeof(szN), "%s@%s", pszBase, pszSlug);
+		szN[sizeof(szN) - 1] = '\0';
+		HCONSOLEVAR h = g_pLTClient->GetConsoleVar(szN);
+		if (h) return g_pLTClient->GetVarValueFloat(h);
+	}
+	return vtGlobal.GetFloat();
+}
+
+// WHERE THE ELBOW GOES: the direction, square to the arm, it bends toward.
+// Down, BACK and a little out - by the world's down and the body's own right
+// and forward, never the camera's (looking down, the camera's "down" is
+// backwards and the elbows folded the wrong way). Down and out alone put a
+// hanging arm's elbow straight out to the side, and with the arm along that
+// pole the elbow flipped from frame to frame; a
+// human elbow with the hand low points back, and with it in front, down.
+static LTVector VRElbowPole(const LTVector& vDir, const LTVector& vCamR, const LTVector& vCamF, bool bLeftArm)
+{
+	LTVector vFlatR(vCamR.x, 0.0f, vCamR.z);
+	if (vFlatR.Mag() > 0.001f) vFlatR.Norm();
+	LTVector vFlatF(vCamF.x, 0.0f, vCamF.z);
+	if (vFlatF.Mag() > 0.001f) vFlatF.Norm();
+	const LTVector vPole = LTVector(0.0f, -1.0f, 0.0f) - vFlatF * 0.8f
+						 + vFlatR * (bLeftArm ? -0.35f : 0.35f);
+	LTVector vPerp = vPole - vDir * vPole.Dot(vDir);
+	if (vPerp.Mag() < 0.001f) vPerp = vFlatR * (bLeftArm ? -1.0f : 1.0f);
+	vPerp.Norm();
+	return vPerp;
+}
+
+// ONE ARM, BENT AGAIN from wherever its shoulder now is - the eyes' body,
+// set back along the ground - to the same hand target as the main pass,
+// with the same pole. Where the target is past the arm's reach the arm is
+// STRETCHED, both bones alike, up to fMaxStretch; the hand keeps the basis
+// the main pass gave it and turns only by the forearm's change. Returns the
+// stretch used (1 = none).
+static float VRArmResolve(VRModelNode& nSh, VRModelNode& nEl, VRModelNode& nHa,
+						  LTVector vT, bool bLeftArm, const LTVector& vCamR, const LTVector& vCamF,
+						  float fMaxStretch, const LTVector& vEye, float* pfEyeDist)
+{
+	const LTVector vSh(nSh.m[3], nSh.m[7], nSh.m[11]);
+	const LTVector vEl(nEl.m[3], nEl.m[7], nEl.m[11]);
+	const LTVector vHa(nHa.m[3], nHa.m[7], nHa.m[11]);
+	float L1 = (vEl - vSh).Mag(), L2 = (vHa - vEl).Mag();
+	LTVector vSt = vT - vSh;
+	const float fWant = vSt.Mag();
+	if (fWant < 0.001f || L1 < 0.001f || L2 < 0.001f) return 1.0f;
+	float fS = 1.0f;
+	if (fWant > (L1 + L2) * 0.98f)
+	{
+		fS = fWant / ((L1 + L2) * 0.98f);
+		if (fS > fMaxStretch) fS = fMaxStretch;
+		L1 *= fS; L2 *= fS;
+	}
+	float d = fWant;
+	const float dMin = (float)fabs(L1 - L2) + 0.01f, dMax = L1 + L2 - 0.01f;
+	if (d < dMin) d = dMin;
+	if (d > dMax) d = dMax;
+	LTVector vDir = vSt; vDir.Norm();
+	vT = vSh + vDir * d;
+	const float a = (L1*L1 - L2*L2 + d*d) / (2.0f * d);
+	const float hh = L1*L1 - a*a;
+	const float hgt = (hh > 0.0f) ? (float)sqrt(hh) : 0.0f;
+	const LTVector vPerp = VRElbowPole(vDir, vCamR, vCamF, bLeftArm);
+	const LTVector vNewE = vSh + vDir * a + vPerp * hgt;
+	// How near the eye the arm's bones pass, for the log: an arm "through
+	// the face" is a number here.
+	if (pfEyeDist)
+	{
+		const LTVector P[3] = { vSh, vNewE, vT };
+		float fMin = 1.0e9f;
+		for (int g = 0; g < 2; ++g)
+		{
+			const LTVector ab = P[g + 1] - P[g];
+			const float fL2 = ab.Dot(ab);
+			float t = (fL2 > 0.0001f) ? (vEye - P[g]).Dot(ab) / fL2 : 0.0f;
+			if (t < 0.0f) t = 0.0f;
+			if (t > 1.0f) t = 1.0f;
+			const float fD = (P[g] + ab * t - vEye).Mag();
+			if (fD < fMin) fMin = fD;
+		}
+		*pfEyeDist = fMin;
+	}
+	VRArmBone(nSh, vSh, vEl, vSh, vNewE);
+	VRArmBone(nEl, vEl, vHa, vNewE, vT);
+	VRArmBone(nHa, vEl, vHa, vNewE, vT);
+	VRNodeStretch(nSh, vNewE - vSh, fS);
+	VRNodeStretch(nEl, vT - vNewE, fS);
+	nEl.m[3] = vNewE.x; nEl.m[7] = vNewE.y; nEl.m[11] = vNewE.z;
+	nHa.m[3] = vT.x;    nHa.m[7] = vT.y;    nHa.m[11] = vT.z;
+	return fS;
+}
 
 // THE FOLDERS RETAIL DRAWS AS A FULL CARD, with no world behind them. Every
 // other folder that can be up with a world loaded is the pause family, and
@@ -4638,6 +5038,30 @@ void CGameClientShell::VRPublishModels()
 		}
 	}
 
+	// THE GUN IN THE MIRROR'S HAND. Her hand-held weapon is an object the game
+	// hides from her own eyes (not visible, portal-visible - see below). With
+	// the mirror body on, the one at her right hand is drawn in mirrors only,
+	// moved with the hand the arm IK bent: it hangs from the ANIMATED hand, and
+	// the reflection's hand is where the controller is.
+	const bool bMirBody = GetConsoleInt("StubMirrorBody", 1) != 0;
+	// THE FIRST-PERSON BODY WITH ITS ARMS (Show body + VRBodyArms): her hands
+	// are the hands - bent to the controllers, the right one on the gun.
+	const bool bArmsFP = GetConsoleInt("VRShowBody", 1) != 0 && g_vtVRBodyArms.GetFloat() > 0.0f;
+	int nPlInst = -1, nViewInst = -1;
+	HLOCALOBJ hPlObj = LTNULL;
+	int nPlArm[2][3] = { { -1, -1, -1 }, { -1, -1, -1 } };
+	bool bPlArm = false;
+	uint32 nHHCount = 0, nHHIdx[8];
+	uint32_t nHHObj[8];
+	bool bHandMoved = false;
+	float fHandR[9];
+	LTVector vHandOld(0.0f, 0.0f, 0.0f), vHandNew(0.0f, 0.0f, 0.0f);
+	// Her right hand's node as the animation left it (after the body moved
+	// under the head, before the arm bends): the mirror's gun is carried from
+	// it to the hand's final node, whatever happened in between.
+	VRModelNode nRightHandAnim;
+	bool bRightHandAnim = false;
+
 	VRPubMark(0);
 	for (uint32 c = 0; c < nCand; ++c)
 	{
@@ -5171,6 +5595,62 @@ void CGameClientShell::VRPublishModels()
 		// alternate pieces were drawn on top of each other (T01S01's credits
 		// Cate, 'torso' and 'torso2'). The engine answers an error past the
 		// last piece, which ends the walk. VRPieceHide 0 publishes none.
+		mi.nShowNodes[0] = mi.nShowNodes[1] = mi.nShowNodes[2] = mi.nShowNodes[3] = 0;
+		mi.fShowMirror[0] = mi.fShowMirror[1] = mi.fShowMirror[2] = mi.fShowMirror[3] = 0.0f;
+		LTVector vSupU, vSupR, vSupF, vSupP;
+		if (i == nViewWeapon && s_bVRSupport && !bArmsFP
+			&& m_weaponModel.GetFireInfo(vSupU, vSupR, vSupF, vSupP) && vSupR.Mag() > 0.01f)
+		{
+			// THE MIRROR'S NORMAL is the gun hand's right; the renderer puts the
+			// plane through the right hand's own centre, so the mirror lands on
+			// every pistol's grip without a number per gun (a plane through the
+			// fire origin was 3 cm off the P38's grip and further off the
+			// Luger's). VRSupportShiftCm nudges it along that right (58.75 world
+			// units to the metre).
+			// ...THE DRAWN GUN'S right, WITH ITS ROLL. GetFireInfo's basis is
+			// the aim - yaw and pitch only - so when the hand rolled the gun
+			// rolled and the plane did not, and the mirrored hand turned the
+			// OTHER way off the grip. The weapon
+			// object's own rotation (yaw, pitch, roll; camera-relative, as the
+			// publish applies it) expressed in the camera's basis is the gun.
+			{
+				HLOCALOBJ hW = m_weaponModel.GetHandle();
+				HOBJECT hCam = GetCamera();
+				if (hW && hCam)
+				{
+					LTRotation rW, rC;
+					g_pLTClient->GetObjectRotation(hW, &rW);
+					g_pLTClient->GetObjectRotation(hCam, &rC);
+					LTVector wu, wr, wf, cu, cr, cf;
+					g_pLTClient->GetRotationVectors(&rW, &wu, &wr, &wf);
+					g_pLTClient->GetRotationVectors(&rC, &cu, &cr, &cf);
+					const LTVector vGunR = cr * wr.x + cu * wr.y + cf * wr.z;
+					if (vGunR.Mag() > 0.01f) vSupR = vGunR;
+				}
+			}
+			vSupR.Norm();
+			mi.fShowMirror[0] = vSupR.x; mi.fShowMirror[1] = vSupR.y; mi.fShowMirror[2] = vSupR.z;
+			mi.fShowMirror[3] = 0.5875f * (float)GetConsoleInt("VRSupportShiftCm", 0);
+			// Named every frame it is on: 59 names on a pistol, and only while
+			// the hand is actually on the gun.
+			HMODELNODE hN = INVALID_MODEL_NODE, hNx = INVALID_MODEL_NODE;
+			uint32 nIdx = 0, nHit = 0;
+			while (nIdx < 128 && g_pLTClient->GetNextModelNode(objs[i], hN, &hNx) == LT_OK)
+			{
+				hN = hNx;
+				char szN[64] = "";
+				g_pLTClient->GetModelNodeName(objs[i], hN, szN, sizeof(szN));
+				if (VRIsHandNode(szN, 'r')) { mi.nShowNodes[nIdx >> 5] |= (1u << (nIdx & 31)); ++nHit; }
+				++nIdx;
+			}
+			static int s_nSaidMask = 0;
+			if (s_nSaidMask < 4)
+			{
+				++s_nSaidMask;
+				VRLog::Msg("VRSupportHand: %u of %u nodes are the right hand, mirrored in n (%+.2f %+.2f %+.2f) d %.1f",
+					nHit, nIdx, mi.fShowMirror[0], mi.fShowMirror[1], mi.fShowMirror[2], mi.fShowMirror[3]);
+			}
+		}
 		mi.nHideMask = 0;
 		if (GetConsoleInt("VRPieceHide", 1) > 0)
 		{
@@ -5480,6 +5960,13 @@ void CGameClientShell::VRPublishModels()
 				const bool bHaveViewModel = (g_vtVRViewModel.GetFloat() > 0.0f);
 				if (bHaveViewModel || !(dwOF & FLAG_PORTALVISIBLE))
 					mi.nFlags |= VRMODEL_F_INVISIBLE;
+				if ((bMirBody || bArmsFP) && (dwOF & FLAG_PORTALVISIBLE) && nHHCount < 8
+					&& !(mi.nFlags & VRMODEL_F_PLAYER))
+				{
+					nHHIdx[nHHCount] = s_frame.nCount;
+					nHHObj[nHHCount] = mi.nObject;
+					++nHHCount;
+				}
 				(void)bOwned;
 			}
 			// Additive lives in the SECOND flag word, not the first.
@@ -5549,19 +6036,27 @@ void CGameClientShell::VRPublishModels()
 		// ILTModel::GetNode looks them up by name at runtime; the walk below
 		// records where each lands in the published array so the transforms can
 		// be rewritten after it.
-		int nArmIdx[3] = { -1, -1, -1 };
-		HMODELNODE hArm[3] = { INVALID_MODEL_NODE, INVALID_MODEL_NODE,
-							   INVALID_MODEL_NODE };
+		// BOTH ARMS, [0] right and [1] left. The left chain is named the same
+		// way as the right on her skeleton; a name the model lacks leaves its
+		// handle invalid and that arm keeps its animated pose.
+		int nArmIdx[2][3] = { { -1, -1, -1 }, { -1, -1, -1 } };
+		HMODELNODE hArm[2][3] = { { INVALID_MODEL_NODE, INVALID_MODEL_NODE, INVALID_MODEL_NODE },
+								  { INVALID_MODEL_NODE, INVALID_MODEL_NODE, INVALID_MODEL_NODE } };
+		// The arms are bent for the MIRROR body (the only place they are seen)
+		// or when VRArmIK asks.
 		const bool bPlayerArm = (mi.nFlags & VRMODEL_F_PLAYER)
-							 && (g_vtVRArmIK.GetFloat() > 0.0f);
+							 && (g_vtVRArmIK.GetFloat() > 0.0f || GetConsoleInt("StubMirrorBody", 1) != 0
+								 || (GetConsoleInt("VRShowBody", 1) != 0 && g_vtVRBodyArms.GetFloat() > 0.0f));
 		if (bPlayerArm)
 		{
-			static const char* kArm[3] = { "Right_armu_node",
-										   "Right_arml_node",
-										   "right_arml_hand_node" };
-			for (int q = 0; q < 3; ++q)
-				g_pLTClient->GetModelLT()->GetNode(objs[i],
-					(char*)kArm[q], hArm[q]);
+			static const char* kArm[2][3] = {
+				{ "Right_armu_node", "Right_arml_node", "right_arml_hand_node" },
+				{ "Left_armu_node",  "Left_arml_node",  "Left_arml_hand_node" } };
+			for (int sd = 0; sd < 2; ++sd)
+				for (int q = 0; q < 3; ++q)
+					if (g_pLTClient->GetModelLT()->GetNode(objs[i],
+							(char*)kArm[sd][q], hArm[sd][q]) != LT_OK)
+						hArm[sd][q] = INVALID_MODEL_NODE;
 		}
 
 		mi.nNodeFirst = s_frame.nNodeCount;
@@ -6144,9 +6639,10 @@ void CGameClientShell::VRPublishModels()
 				LTransform tf;
 				if (bPlayerArm)
 				{
-					for (int q = 0; q < 3; ++q)
-						if (hNode == hArm[q] && hArm[q] != INVALID_MODEL_NODE)
-							nArmIdx[q] = (int)s_frame.nNodeCount;
+					for (int sd = 0; sd < 2; ++sd)
+						for (int q = 0; q < 3; ++q)
+							if (hNode == hArm[sd][q] && hArm[sd][q] != INVALID_MODEL_NODE)
+								nArmIdx[sd][q] = (int)s_frame.nNodeCount;
 				}
 				VRModelNode& vn = s_frame.nodes[s_frame.nNodeCount++];
 				if (g_pLTClient->GetModelLT()->GetNodeTransform(objs[i], hNode,
@@ -6653,7 +7149,14 @@ void CGameClientShell::VRPublishModels()
 		if ((mi.nFlags & VRMODEL_F_PLAYER) && g_vtVRBodyBack.GetFloat() != 0.0f)
 		{
 			const float fBack = g_vtVRBodyBack.GetFloat() * 58.75f;
-			const LTVector vOff = vCamF * -fBack;
+			// BACK ALONG THE GROUND, not along the gaze. Looking down, the
+			// gaze points at the floor, and "behind" it was UP: the body was
+			// lifted into the camera and the view was the inside of her chest
+			// (desk, 27 September). The body stands; only its facing counts.
+			LTVector vFlat(vCamF.x, 0.0f, vCamF.z);
+			if (vFlat.Mag() < 0.001f) vFlat = vCamU * (vCamF.y < 0.0f ? 1.0f : -1.0f);
+			vFlat.y = 0.0f; vFlat.Norm();
+			const LTVector vOff = vFlat * -fBack;
 			mi.fPos[0] += vOff.x; mi.fPos[1] += vOff.y; mi.fPos[2] += vOff.z;
 			for (uint32 z = 0; z < mi.nNodeCount; ++z)
 			{
@@ -6662,40 +7165,280 @@ void CGameClientShell::VRPublishModels()
 			}
 		}
 
+		// THE PLAYER'S ARMS AND ROLES ARE DONE AFTER THE LOOP, once the view
+		// weapon (her right hand's target) and her hand-held gun are placed:
+		// see "THE BODY, AFTER EVERYTHING IS PLACED" below.
+		if (mi.nFlags & VRMODEL_F_PLAYER)
+		{
+			nPlInst = (int)s_frame.nCount; hPlObj = objs[i];
+			memcpy(nPlArm, nArmIdx, sizeof nPlArm); bPlArm = bPlayerArm;
+		}
+		if (i == nViewWeapon) nViewInst = (int)s_frame.nCount;
+		++s_frame.nCount;
+	}
+
+	// ---- THE BODY, AFTER EVERYTHING IS PLACED ---------------------------
+	// Her arms are bent to the controllers - the right hand to the view
+	// weapon's grip, turned so the gun she holds lies along it - and then
+	// the body takes its roles (eyes, mirror). Done here and not in the loop
+	// because the gun's grip and her hand-held gun are only known once every
+	// instance is.
+	if (nPlInst >= 0 && (uint32)nPlInst < s_frame.nCount
+		&& s_frame.inst[nPlInst].nObject == (uint32_t)(uintptr_t)hPlObj)
+	{
+		VRModelInst& mi = s_frame.inst[nPlInst];
+		const bool bPlayerArm = bPlArm;
+		int (&nArmIdx)[2][3] = nPlArm;
+		// The view weapon: its right wrist node (the grip) and its axes.
+		bool bHaveGrip = false, bHaveAim = false;
+		LTVector vGripR(0.0f, 0.0f, 0.0f), vAimF(0.0f, 0.0f, 1.0f), vAimU(0.0f, 1.0f, 0.0f), vAimR(1.0f, 0.0f, 0.0f);
+		if (nViewInst >= 0 && (uint32)nViewInst < s_frame.nCount && nViewWeapon < nOut)
+		{
+			const VRModelInst& vw = s_frame.inst[nViewInst];
+			HLOCALOBJ hW = objs[nViewWeapon];
+			if (vw.nObject == (uint32_t)(uintptr_t)hW)
+			{
+				HMODELNODE hN = INVALID_MODEL_NODE, hNx = INVALID_MODEL_NODE;
+				uint32 nIdx = 0;
+				while (nIdx < vw.nNodeCount && g_pLTClient->GetNextModelNode(hW, hN, &hNx) == LT_OK)
+				{
+					hN = hNx;
+					char szN[64] = "";
+					g_pLTClient->GetModelNodeName(hW, hN, szN, sizeof(szN));
+					if (_stricmp(szN, "wristR") == 0)
+					{
+						const VRModelNode& gn = s_frame.nodes[vw.nNodeFirst + nIdx];
+						if (gn.m[0] != 0.0f || gn.m[5] != 0.0f || gn.m[10] != 0.0f)
+						{
+							vGripR = LTVector(gn.m[3], gn.m[7], gn.m[11]);
+							bHaveGrip = true;
+						}
+						break;
+					}
+					++nIdx;
+				}
+				HOBJECT hCamA = m_hCamera;
+				if (hCamA)
+				{
+					LTRotation rW, rC;
+					g_pLTClient->GetObjectRotation(hW, &rW);
+					g_pLTClient->GetObjectRotation(hCamA, &rC);
+					LTVector wu, wr, wf, cu, cr, cf;
+					g_pLTClient->GetRotationVectors(&rW, &wu, &wr, &wf);
+					g_pLTClient->GetRotationVectors(&rC, &cu, &cr, &cf);
+					vAimF = cr * wf.x + cu * wf.y + cf * wf.z;
+					vAimU = cr * wu.x + cu * wu.y + cf * wu.z;
+					// Its right as DRAWN: the Leftorium draws the gun mirrored.
+					vAimR = (cr * wr.x + cu * wr.y + cf * wr.z) * (VRShared::SwapHands() ? -1.0f : 1.0f);
+					bHaveAim = (vAimF.Mag() > 0.01f && vAimU.Mag() > 0.01f);
+				}
+			}
+		}
+		static int s_nSaidGrip = 0;
+		if (s_nSaidGrip < 3 && bPlayerArm)
+		{
+			++s_nSaidGrip;
+			VRLog::Msg("VRBody: %s hand target %s, wrist %s", VRShared::SwapHands() ? "LEFT (Leftorium)" : "right",
+				bHaveGrip ? "the gun's wristR" : "the controller",
+				bHaveAim ? "aligned to the gun" : "as the arm leaves it");
+		}
+
 		// BEND THE ARM TO THE CONTROLLER. Two-bone IK, run after the walk
 		// because it needs all three joints posed before it can measure them.
 		//
 		// The bone LENGTHS come from the animated pose, not the bind pose. A
 		// bone does not change length, so measuring what is actually there
 		// needs no bind data and cannot drift out of step with it.
-		// Not in the Leftorium: this is the body's RIGHT arm, and the weapon hand
-		// is then the left controller - it would reach across the chest. The arm
-		// keeps its animated pose instead (bending the left arm is a later job).
-		if (bPlayerArm && nArmIdx[0] >= 0 && nArmIdx[1] >= 0 && nArmIdx[2] >= 0
-			&& VRShared::IsLive() && VRShared::State().Hands[1].nActive
-			&& !VRShared::SwapHands())
+		// BOTH ARMS NOW: sd 0 is the body's right arm to the right controller
+		// (Hands[1]), sd 1 its left to the left (Hands[0]).
+		// THE LEFTORIUM TOO. The hand state arrives already swapped (VRShared::
+		// Poll), so there Hands[1] is the LEFT controller: each arm still goes
+		// to the controller on its own side, and the arm holding the gun - the
+		// one whose hand goes to the grip - is the left.
+		const bool bSwapArms = VRShared::SwapHands();
+		const int  sdGun = bSwapArms ? 1 : 0;
+
+		// THE BODY UNDER THE HEAD. The whole skeleton - and the gun hanging
+		// from her hand - moves along the ground so her shoulders are
+		// VRBodyShoulderBack behind the eye, the way a person's are. Before
+		// the arms are bent, so they bend from there; both the eyes' and the
+		// mirror's copies share it.
+		LTVector vBodyShift(0.0f, 0.0f, 0.0f);
+		if (bPlayerArm && nArmIdx[0][0] >= 0 && nArmIdx[1][0] >= 0
+			&& g_vtVRBodyShoulderBack.GetFloat() >= 0.0f)
 		{
-			VRModelNode& nSh = s_frame.nodes[nArmIdx[0]];
-			VRModelNode& nEl = s_frame.nodes[nArmIdx[1]];
-			VRModelNode& nHa = s_frame.nodes[nArmIdx[2]];
+			const VRModelNode& sR = s_frame.nodes[nArmIdx[0][0]];
+			const VRModelNode& sL = s_frame.nodes[nArmIdx[1][0]];
+			const LTVector vMid((sR.m[3] + sL.m[3]) * 0.5f, 0.0f, (sR.m[11] + sL.m[11]) * 0.5f);
+			LTVector vFlat(vCamF.x, 0.0f, vCamF.z);
+			if (vFlat.Mag() > 0.001f)
+			{
+				vFlat.Norm();
+				const LTVector vWant = vEye - vFlat * (g_vtVRBodyShoulderBack.GetFloat() * 58.75f);
+				vBodyShift = LTVector(vWant.x - vMid.x, 0.0f, vWant.z - vMid.z);
+				// More than a metre is not her pose, it is a bad frame.
+				if (vBodyShift.Mag() > 58.75f) vBodyShift = LTVector(0.0f, 0.0f, 0.0f);
+			}
+			if (vBodyShift.Mag() > 0.0f)
+			{
+				for (uint32 z = 0; z < mi.nNodeCount; ++z)
+				{
+					VRModelNode& bn = s_frame.nodes[mi.nNodeFirst + z];
+					bn.m[3] += vBodyShift.x; bn.m[11] += vBodyShift.z;
+				}
+				mi.fPos[0] += vBodyShift.x; mi.fPos[2] += vBodyShift.z;
+				for (uint32 k = 0; k < nHHCount; ++k)
+				{
+					if (nHHIdx[k] >= s_frame.nCount || s_frame.inst[nHHIdx[k]].nObject != nHHObj[k]) continue;
+					VRModelInst& w = s_frame.inst[nHHIdx[k]];
+					for (uint32 z = 0; z < w.nNodeCount; ++z)
+					{
+						VRModelNode& wn = s_frame.nodes[w.nNodeFirst + z];
+						wn.m[3] += vBodyShift.x; wn.m[11] += vBodyShift.z;
+					}
+					w.fPos[0] += vBodyShift.x; w.fPos[2] += vBodyShift.z;
+				}
+			}
+			if ((m_nVRModelFrame % 450) == 0)
+				VRLog::Msg("VRBody: moved %.1f units along the ground to put her shoulders %.2f m behind the eye",
+					vBodyShift.Mag(), g_vtVRBodyShoulderBack.GetFloat());
+		}
+		// The game hangs her gun from the model's RIGHT hand whichever hand
+		// holds it, so the mirror's gun is found by the right hand's ANIMATED
+		// place, taken before either arm moves.
+		LTVector vRightAnim(0.0f, 0.0f, 0.0f);
+		bool bRightAnim = false;
+		static long s_nElbowFlips[2] = { 0, 0 };
+		// Each arm's hand target, for the eyes' copy to bend to again.
+		LTVector vArmWant[2];
+		bool bArmIK[2] = { false, false };
+		if (bPlayerArm && nArmIdx[0][2] >= 0)
+		{
+			const VRModelNode& nR = s_frame.nodes[nArmIdx[0][2]];
+			vRightAnim = LTVector(nR.m[3], nR.m[7], nR.m[11]);
+			bRightAnim = true;
+			nRightHandAnim = nR; bRightHandAnim = true;
+		}
+		// IS THERE A GUN IN HER HAND? The game hangs one from her right hand
+		// (see nHH). With none - the fists, or nothing drawn - the gun hand has
+		// no grip to go to: put on the drawn fist, it bobbed with the fist's
+		// idle and moved at the view weapon's scale, so it slid against the
+		// controller and never rolled. Then it is
+		// placed like the other hand: locked to its own controller.
+		// BY THE GUN YOU HOLD, not by her hand-held copy of it: that copy is
+		// not always there to find, and the answer flipped back and forth with
+		// the pistol drawn - the gun hand dropped 15 cm behind the controller
+		// and the pistol floated ahead of it. A view
+		// weapon with a grip that is not the fists is a gun in the hand.
+		bool bGunHeld = false;
+		if (bHaveGrip)
+		{
+			char szHeldSlug[64] = "";
+			VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szHeldSlug, sizeof(szHeldSlug));
+			bGunHeld = (_stricmp(szHeldSlug, "fisty_cuffs") != 0);
+		}
+		static int s_nSaidHeld = -1;
+		if ((int)bGunHeld != s_nSaidHeld)
+		{
+			s_nSaidHeld = (int)bGunHeld;
+			VRLog::Msg("VRArm: %s", bGunHeld ? "a gun in her hand - the gun hand goes to its grip"
+				: "no gun in her hand - both hands locked to their controllers");
+		}
+		for (int sd = 0; sd < 2; ++sd)
+		if (bPlayerArm && nArmIdx[sd][0] >= 0 && nArmIdx[sd][1] >= 0 && nArmIdx[sd][2] >= 0
+			&& VRShared::IsLive() && VRShared::State().Hands[bSwapArms ? sd : 1 - sd].nActive)
+		{
+			VRModelNode& nSh = s_frame.nodes[nArmIdx[sd][0]];
+			VRModelNode& nEl = s_frame.nodes[nArmIdx[sd][1]];
+			VRModelNode& nHa = s_frame.nodes[nArmIdx[sd][2]];
 			const LTVector vSh(nSh.m[3], nSh.m[7], nSh.m[11]);
 			const LTVector vEl(nEl.m[3], nEl.m[7], nEl.m[11]);
 			const LTVector vHa(nHa.m[3], nHa.m[7], nHa.m[11]);
-			const float L1 = (vEl - vSh).Mag();
-			const float L2 = (vHa - vEl).Mag();
+			float L1 = (vEl - vSh).Mag();
+			float L2 = (vHa - vEl).Mag();
 
 			// The controller, in the world. 58.75 units per metre is the
 			// WORLD's scale, and the body IS in the world - unlike the view
 			// weapon, whose camera-relative space needed about 3.
 			const VRSharedState& st = VRShared::State();
-			const VRHandState&   hr = st.Hands[1];
+			const VRHandState&   hr = st.Hands[bSwapArms ? sd : 1 - sd];
 			const LTVector vHL((hr.fPosX - st.fHeadPosX) * 58.75f,
 							   (hr.fPosY - st.fHeadPosY) * 58.75f,
 							  -(hr.fPosZ - st.fHeadPosZ) * 58.75f);
 			LTVector vT = vEye + vCamR * vHL.x + vCamU * vHL.y + vCamF * vHL.z;
+			// THE CONTROLLER'S AXES in the world, built exactly as the drawn
+			// gun's rotation is (WeaponModel.cpp: absolute yaw and pitch, roll
+			// against the head's), in the camera basis.
+			LTVector vCtrlR, vCtrlU, vCtrlF;
+			{
+				const float fD2R = 0.01745329f;
+				LTRotation rC; rC.Init();
+				g_pLTClient->EulerRotateY(&rC, -hr.fYawDeg * fD2R);
+				g_pLTClient->EulerRotateX(&rC, -hr.fPitchDeg * fD2R);
+				g_pLTClient->EulerRotateZ(&rC, (hr.fRollDeg - st.fHeadRollDeg) * fD2R);
+				LTVector cu, cr, cf; g_pLTClient->GetRotationVectors(&rC, &cu, &cr, &cf);
+				vCtrlR = vCamR * cr.x + vCamU * cr.y + vCamF * cr.z;
+				vCtrlU = vCamR * cu.x + vCamU * cu.y + vCamF * cu.z;
+				vCtrlF = vCamR * cf.x + vCamU * cf.y + vCamF * cf.z;
+			}
+			const bool bCtrlHand = (sd != sdGun) || !bGunHeld || g_vtVRBodyGunGrip.GetFloat() <= 0.0f;
+			if (bCtrlHand)
+			{
+				// Inner side: the controller's right on the left hand, its left
+				// on the right.
+				const LTVector vIn = (sd == 1) ? vCtrlR : (vCtrlR * -1.0f);
+				if (sd == 1)
+					vT = vT + (vIn * g_vtVRBodyPalmR.GetFloat() + vCtrlU * g_vtVRBodyPalmU.GetFloat()
+							   + vCtrlF * g_vtVRBodyPalmF.GetFloat()) * 58.75f;
+				else
+					vT = vT + (vIn * g_vtVRBodyRPalmR.GetFloat() + vCtrlU * g_vtVRBodyRPalmU.GetFloat()
+							   + vCtrlF * g_vtVRBodyRPalmF.GetFloat()) * 58.75f;
+				if (sd == sdGun && bGunHeld)
+					vT = vT + (vIn * g_vtVRBodyGunHandIn.GetFloat() + vCtrlU * g_vtVRBodyGunHandU.GetFloat()
+							   + vCtrlF * g_vtVRBodyGunHandF.GetFloat()) * 58.75f;
+			}
+			// THE RIGHT HAND GOES TO THE GUN'S GRIP, not to the controller's
+			// world position: the gun is placed through its own scale (about 51
+			// units a metre against the world's 58.75), so at arm's length the
+			// two part by centimetres. The gun's own wrist node is where a hand
+			// holding it belongs.
+			if (sd == sdGun && bHaveGrip && bGunHeld && !bCtrlHand)
+			{
+				// ...A LITTLE UP THE GRIP: the gun's wrist node is at the heel
+				// of its hand, and a fist placed there held the grip by its
+				// bottom (desk, 27 September). VRBodyGripUp world units along
+				// the gun's up, VRBodyGripFwd along its barrel.
+				vT = vGripR;
+				if (bHaveAim)
+				{
+					LTVector aU = vAimU; aU.Norm();
+					LTVector aF = vAimF; aF.Norm();
+					LTVector aR = vAimR; aR.Norm();
+					char szGunSlug[64] = "";
+					VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szGunSlug, sizeof(szGunSlug));
+					vT = vT + aU * VRBodyPerGun("VRBodyGripUp", szGunSlug, g_vtVRBodyGripUp)
+							+ aF * VRBodyPerGun("VRBodyGripFwd", szGunSlug, g_vtVRBodyGripFwd)
+							+ aR * VRBodyPerGun("VRBodyGripR", szGunSlug, g_vtVRBodyGripR);
+				}
+			}
 
+			vArmWant[sd] = vT;
 			LTVector vSt = vT - vSh;
 			const float fWant = vSt.Mag();
+			// A LITTLE STRETCH, both bones alike, up to VRBodyStretch: her arm
+			// is shorter than the player's, and locked straight short of the
+			// controller it held a zombie's pose and let the gun move away
+			// from the hand.
+			float fArmStretch = 1.0f;
+			{
+				const float fMaxS = (g_vtVRBodyStretch.GetFloat() > 1.0f) ? g_vtVRBodyStretch.GetFloat() : 1.0f;
+				if (L1 > 0.001f && L2 > 0.001f && fWant > (L1 + L2) * 0.98f)
+				{
+					fArmStretch = fWant / ((L1 + L2) * 0.98f);
+					if (fArmStretch > fMaxS) fArmStretch = fMaxS;
+					L1 *= fArmStretch; L2 *= fArmStretch;
+				}
+			}
 			float d = fWant;
 			const float dMin = (float)fabs(L1 - L2) + 0.01f;
 			const float dMax = L1 + L2 - 0.01f;
@@ -6716,29 +7459,478 @@ void CGameClientShell::VRPublishModels()
 				// THE POLE. An elbow otherwise picks an arbitrary point on a
 				// circle and flips between frames. Hers goes down and a little
 				// out, which is where a human elbow is with the hand in front.
-				LTVector vPole = vCamU * -1.0f + vCamR * 0.35f;
-				LTVector vPerp = vPole - vDir * vPole.Dot(vDir);
-				if (vPerp.Mag() < 0.001f) vPerp = vCamR;
-				vPerp.Norm();
+				// BY THE WORLD'S DOWN and the body's right, not the camera's:
+				// looking down, the camera's "down" is backwards and the elbows
+				// folded the wrong way.
+				const LTVector vPerp = VRElbowPole(vDir, vCamR, vCamF, sd == 1);
 				const LTVector vNewE = vSh + vDir * a + vPerp * hgt;
+				// ELBOW FLIPS, counted for the log: the bend direction turning
+				// more than 90 degrees from one frame to the next.
+				{
+					static LTVector s_vLastPerp[2];
+					static bool s_bHavePerp[2] = { false, false };
+					if (s_bHavePerp[sd] && vPerp.Dot(s_vLastPerp[sd]) < 0.0f) ++s_nElbowFlips[sd];
+					s_vLastPerp[sd] = vPerp; s_bHavePerp[sd] = true;
+				}
 
-				VRArmBone(nEl, vSh, vEl, vSh, vNewE);
+				// EACH BONE BY ITS OWN SEGMENT. The mesh of the upper arm hangs
+				// from the SHOULDER node, the forearm from the elbow node, the
+				// hand from the hand node. This rotated the elbow node by the
+				// upper arm's turn and never turned the shoulder node at all,
+				// so the upper arm kept the animation's pose and the forearm
+				// swung the wrong way: in a mirror the arms hung at her sides
+				// with the controllers held out in front (desk, 27 September).
+				VRArmBone(nSh, vSh, vEl, vSh, vNewE);
+				VRArmBone(nEl, vEl, vHa, vNewE, vT);
 				VRArmBone(nHa, vEl, vHa, vNewE, vT);
+				VRNodeStretch(nSh, vNewE - vSh, fArmStretch);
+				VRNodeStretch(nEl, vT - vNewE, fArmStretch);
+				bArmIK[sd] = true;
+
+				// THE OTHER HAND IS LOCKED TO ITS CONTROLLER: all three axes of
+				// its rotation come from the controller, not from the forearm.
+				// It first followed the forearm, then rolled with the controller
+				// about the forearm; the wrist still bent
+				// with the arm rather than the hand. Now:
+				//   - the hand's LONG axis (the node axis lying along the forearm)
+				//     goes along the controller's forward;
+				//   - its PALM axis (the node axis that faced up when bent to the
+				//     controller - "palm up" in the headset) goes to the
+				//     controller's INNER side, its right on the left hand;
+				//   - the third follows, keeping the node's handedness.
+				// Trims on top, degrees, the arm tuner's OFF TURN mode:
+				// VRBodyOffRoll about the controller's forward (90 by default:
+				// the palm needed a quarter turn counter-clockwise, seen from
+				// behind), VRBodyOffYaw toward the inner side, VRBodyOffPitch
+				// toward the controller's up. The Leftorium's right hand mirrors
+				// roll and yaw.
+				if (bCtrlHand)
+				{
+					LTVector vFore = vT - vNewE;
+					if (vFore.Mag() > 0.001f)
+					{
+						vFore.Norm();
+						// The textbook cross product (LithTech's Cross is reversed).
+						struct X { static LTVector C(const LTVector& a, const LTVector& b)
+							{ return LTVector(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x); } };
+						// The node's axes as they are now, columns of its 3x3.
+						LTVector col[3] = {
+							LTVector(nHa.m[0], nHa.m[4], nHa.m[8]),
+							LTVector(nHa.m[1], nHa.m[5], nHa.m[9]),
+							LTVector(nHa.m[2], nHa.m[6], nHa.m[10]) };
+						const float fLen[3] = { col[0].Mag(), col[1].Mag(), col[2].Mag() };
+						if (fLen[0] > 0.0001f && fLen[1] > 0.0001f && fLen[2] > 0.0001f)
+						{
+							LTVector u[3] = { col[0] / fLen[0], col[1] / fLen[1], col[2] / fLen[2] };
+							// WHICH NODE AXIS IS WHICH IS FIXED, as it was when the hands
+							// were tuned (hand tuner, 27 September; the log of that
+							// session). Picked from the pose, the palm axis flipped a
+							// quarter turn as the arm moved, and latching the pick once
+							// still re-picked on every load, from whatever pose she stood
+							// in - three different answers in one session, each one
+							// turning the tuned roll to a different place. Her hands'
+							// node frames: axis 0 runs down the hand (against the
+							// forearm), the palm is axis 2 on the right hand and -1 on
+							// the left.
+							const int   jF = 0, jP = (sd == 0) ? 2 : 1, jT = (sd == 0) ? 1 : 2;
+							const float sF = -1.0f, sP = (sd == 0) ? 1.0f : -1.0f, sT = 1.0f;
+							{
+								// Said once per hand, with how well the long axis agrees
+								// with the forearm, so another outfit's rig can be checked.
+								static bool s_bSaidAxes[2] = { false, false };
+								if (!s_bSaidAxes[sd])
+								{
+									s_bSaidAxes[sd] = true;
+									VRLog::Msg("VRArm: %s hand's node axes fixed - 0 along it, %d the palm; axis 0 vs the forearm %.2f (near -1 is right)",
+										sd ? "left" : "right", jP, u[0].Dot(vFore));
+								}
+							}
+
+							// The controller's frame, trimmed.
+							const float fMir = (sd == 1) ? 1.0f : -1.0f;
+							LTVector vIn = vCtrlR * fMir;
+							LTVector vF  = vCtrlF, vU = vCtrlU;
+							const float fYaw   = g_vtVRBodyOffYaw.GetFloat()   * 0.01745329f * fMir;
+							const float fPitch = g_vtVRBodyOffPitch.GetFloat() * 0.01745329f;
+							const float fRoll  = ((sd == 1) ? g_vtVRBodyOffRoll.GetFloat() : g_vtVRBodyRightRoll.GetFloat()) * 0.01745329f * fMir;
+							if (fYaw != 0.0f)
+							{
+								const LTVector f2 = vF * (float)cos(fYaw) + vIn * (float)sin(fYaw);
+								vIn = vIn * (float)cos(fYaw) - vF * (float)sin(fYaw);
+								vF = f2;
+							}
+							if (fPitch != 0.0f)
+							{
+								const LTVector f2 = vF * (float)cos(fPitch) + vU * (float)sin(fPitch);
+								vU = vU * (float)cos(fPitch) - vF * (float)sin(fPitch);
+								vF = f2;
+							}
+							LTVector vPalm = vIn;
+							if (fRoll != 0.0f) vPalm = vIn * (float)cos(fRoll) + vU * (float)sin(fRoll);
+							vF.Norm();
+							vPalm = vPalm - vF * vPalm.Dot(vF);
+							if (vPalm.Mag() > 0.001f)
+							{
+								vPalm.Norm();
+								LTVector nw[3];
+								nw[jF] = vF * sF;
+								nw[jP] = vPalm * sP;
+								nw[jT] = X::C(vF, vPalm) * sT;	// sT was measured against the UNSIGNED pair
+								// ...and her hand's size (VRBodyHandScale), about the wrist.
+								float fHS = g_vtVRBodyHandScale.GetFloat();
+								if (fHS < 0.5f) fHS = 0.5f;
+								if (fHS > 2.0f) fHS = 2.0f;
+								for (int j = 0; j < 3; ++j) nw[j] = nw[j] * (fLen[j] * fHS);
+								nHa.m[0] = nw[0].x; nHa.m[1] = nw[1].x; nHa.m[2]  = nw[2].x;
+								nHa.m[4] = nw[0].y; nHa.m[5] = nw[1].y; nHa.m[6]  = nw[2].y;
+								nHa.m[8] = nw[0].z; nHa.m[9] = nw[1].z; nHa.m[10] = nw[2].z;
+							}
+						}
+					}
+				}
+				// THE LEFTORIUM'S GUN goes from her right hand, where the game
+				// hangs it, to the left one holding the grip: turned straight
+				// onto the view weapon's forward and up (her own left wrist keeps
+				// the forearm's line), and carried from the right hand's animated
+				// place to the left hand's new one.
+				if (bSwapArms && sd == sdGun && bRightAnim && bHaveAim)
+				{
+					HOBJECT hG = LTNULL; float fBestG = 25.0f * 25.0f;
+					for (uint32 k = 0; k < nHHCount; ++k)
+					{
+						if (nHHIdx[k] >= s_frame.nCount || s_frame.inst[nHHIdx[k]].nObject != nHHObj[k]) continue;
+						const VRModelInst& w = s_frame.inst[nHHIdx[k]];
+						const float dx = w.fPos[0] - vRightAnim.x, dy = w.fPos[1] - vRightAnim.y, dz = w.fPos[2] - vRightAnim.z;
+						if (dx*dx + dy*dy + dz*dz < fBestG) { fBestG = dx*dx + dy*dy + dz*dz; hG = (HOBJECT)(uintptr_t)nHHObj[k]; }
+					}
+					if (hG)
+					{
+						LTRotation rG; g_pLTClient->GetObjectRotation(hG, &rG);
+						LTVector gU, gR, gF; g_pLTClient->GetRotationVectors(&rG, &gU, &gR, &gF);
+						LTVector bF = gF, bU = gU;
+						bF.Norm(); LTVector bR = bU.Cross(bF); bR.Norm(); bU = bF.Cross(bR);
+						LTVector aFn = vAimF; aFn.Norm(); LTVector aRn = vAimU.Cross(aFn); aRn.Norm(); LTVector aUn = aFn.Cross(aRn);
+						const float A[9] = { aRn.x, aUn.x, aFn.x, aRn.y, aUn.y, aFn.y, aRn.z, aUn.z, aFn.z };
+						const float B[9] = { bR.x, bU.x, bF.x, bR.y, bU.y, bF.y, bR.z, bU.z, bF.z };
+						for (int r = 0; r < 3; ++r)
+							for (int cc = 0; cc < 3; ++cc)
+								fHandR[r*3+cc] = A[r*3+0]*B[cc*3+0] + A[r*3+1]*B[cc*3+1] + A[r*3+2]*B[cc*3+2];
+						vHandOld = vRightAnim; vHandNew = vT;
+						bHandMoved = true;
+					}
+				}
+				if (sd == 0 && !bSwapArms)
+				{
+					VRRotBetween(vHa - vEl, vT - vNewE, fHandR);
+					vHandOld = vHa; vHandNew = vT;
+					bHandMoved = true;
+					// THE WRIST, TURNED SO HER GUN LIES ALONG THE REAL ONE. The
+					// animation's wrist held the gun its own way; bent to the
+					// controller the gun in the mirror pointed at her face (desk,
+					// 27 September). The hand-held gun at this hand, as the arm
+					// just turned it, is rotated onto the view weapon's axes -
+					// forward and up - and the hand with it.
+					if (bHaveAim && g_vtVRBodyWrist.GetFloat() > 0.0f)
+					{
+						HOBJECT hG = LTNULL; float fBestG = 25.0f * 25.0f;
+						for (uint32 k = 0; k < nHHCount; ++k)
+						{
+							if (nHHIdx[k] >= s_frame.nCount || s_frame.inst[nHHIdx[k]].nObject != nHHObj[k]) continue;
+							const VRModelInst& w = s_frame.inst[nHHIdx[k]];
+							const float dx = w.fPos[0] - vHa.x, dy = w.fPos[1] - vHa.y, dz = w.fPos[2] - vHa.z;
+							if (dx*dx + dy*dy + dz*dz < fBestG) { fBestG = dx*dx + dy*dy + dz*dz; hG = (HOBJECT)(uintptr_t)nHHObj[k]; }
+						}
+						if (hG)
+						{
+							LTRotation rG; g_pLTClient->GetObjectRotation(hG, &rG);
+							LTVector gU, gR, gF; g_pLTClient->GetRotationVectors(&rG, &gU, &gR, &gF);
+							const float* F = fHandR;
+							LTVector bF(F[0]*gF.x + F[1]*gF.y + F[2]*gF.z, F[3]*gF.x + F[4]*gF.y + F[5]*gF.z, F[6]*gF.x + F[7]*gF.y + F[8]*gF.z);
+							LTVector bU(F[0]*gU.x + F[1]*gU.y + F[2]*gU.z, F[3]*gU.x + F[4]*gU.y + F[5]*gU.z, F[6]*gU.x + F[7]*gU.y + F[8]*gU.z);
+							// Two orthonormal frames, then W = A * B^T.
+							bF.Norm(); LTVector bR = bU.Cross(bF); bR.Norm(); bU = bF.Cross(bR);
+							LTVector aFn = vAimF; aFn.Norm(); LTVector aRn = vAimU.Cross(aFn); aRn.Norm(); LTVector aUn = aFn.Cross(aRn);
+							const float A[9] = { aRn.x, aUn.x, aFn.x, aRn.y, aUn.y, aFn.y, aRn.z, aUn.z, aFn.z };
+							const float B[9] = { bR.x, bU.x, bF.x, bR.y, bU.y, bF.y, bR.z, bU.z, bF.z };
+							float W[9];
+							for (int r = 0; r < 3; ++r)
+								for (int cc = 0; cc < 3; ++cc)
+									W[r*3+cc] = A[r*3+0]*B[cc*3+0] + A[r*3+1]*B[cc*3+1] + A[r*3+2]*B[cc*3+2];
+							// The hand node's basis turns by W (it already turned by
+							// the forearm's rotation), and the gun's transform is W
+							// after the forearm's.
+							const float M[9] = { nHa.m[0], nHa.m[1], nHa.m[2], nHa.m[4], nHa.m[5], nHa.m[6], nHa.m[8], nHa.m[9], nHa.m[10] };
+							float O[9], T[9];
+							for (int r = 0; r < 3; ++r)
+								for (int cc = 0; cc < 3; ++cc)
+								{
+									O[r*3+cc] = W[r*3+0]*M[0*3+cc] + W[r*3+1]*M[1*3+cc] + W[r*3+2]*M[2*3+cc];
+									T[r*3+cc] = W[r*3+0]*F[0*3+cc] + W[r*3+1]*F[1*3+cc] + W[r*3+2]*F[2*3+cc];
+								}
+							nHa.m[0] = O[0]; nHa.m[1] = O[1]; nHa.m[2] = O[2];
+							nHa.m[4] = O[3]; nHa.m[5] = O[4]; nHa.m[6] = O[5];
+							nHa.m[8] = O[6]; nHa.m[9] = O[7]; nHa.m[10] = O[8];
+							memcpy(fHandR, T, sizeof T);
+						}
+					}
+				}
 				nEl.m[3] = vNewE.x; nEl.m[7] = vNewE.y; nEl.m[11] = vNewE.z;
 				nHa.m[3] = vT.x;    nHa.m[7] = vT.y;    nHa.m[11] = vT.z;
 
+				// Every 450 frames as well, with where it all ended up in the
+				// camera's own terms - right, up, forward from the eye - so a
+				// desk run can check the hand against the controller.
+				if ((m_nVRModelFrame % 450) == 0)
+				{
+					const LTVector a = vT - vEye, b = vNewE - vEye, c = vSh - vEye;
+					VRLog::Msg("VRArm: %s hand at (%.1f %.1f %.1f) elbow (%.1f %.1f %.1f) shoulder (%.1f %.1f %.1f) from the eye, r/u/f units; wanted %.1f away, reach %.1f",
+						sd ? "left" : "right", a.Dot(vCamR), a.Dot(vCamU), a.Dot(vCamF),
+						b.Dot(vCamR), b.Dot(vCamU), b.Dot(vCamF), c.Dot(vCamR), c.Dot(vCamU), c.Dot(vCamF), fWant, L1 + L2);
+				}
 				static int s_nArmSaid = 0;
 				if (s_nArmSaid < 4)
 				{
 					++s_nArmSaid;
-					VRLog::Msg("VRArm: upper %.1f fore %.1f (reach %.1f),"
-						" controller %.1f away%s", L1, L2, L1 + L2, fWant,
+					VRLog::Msg("VRArm: %s upper %.1f fore %.1f (reach %.1f),"
+						" controller %.1f away%s", sd ? "left" : "right", L1, L2, L1 + L2, fWant,
 						(fWant > dMax) ? "  <- beyond reach, clamped" : "");
 				}
 			}
 		}
 
-		++s_frame.nCount;
+		// THE BODY'S ROLES (see VRMODEL_F_HIDENODES / MIRRORONLY). The two
+		// options are renderer switches the launcher passes on; the same names
+		// are console variables here, from the same autoexec.cfg.
+		{
+			const bool bFP  = GetConsoleInt("VRShowBody", 1) != 0;
+			const bool bMir = GetConsoleInt("StubMirrorBody", 1) != 0;
+			// IS SHE ANIMATED? The engine's own answer, every 300 frames while
+			// a body is wanted: which animation, its time, whether it plays.
+			if ((bFP || bMir) && (m_nVRModelFrame % 300) == 0 && g_pLTClient->GetModelLT())
+			{
+				LTAnimTracker* pTrB = LTNULL;
+				HMODELANIM hAB = INVALID_MODEL_ANIM; uint32 nTB = 0; int bPlayB = -1;
+				if (g_pLTClient->GetModelLT()->GetMainTracker(hPlObj, pTrB) == LT_OK && pTrB)
+				{
+					g_pLTClient->GetModelLT()->GetCurAnim(pTrB, hAB);
+					g_pLTClient->GetModelLT()->GetCurAnimTime(pTrB, nTB);
+					bPlayB = (g_pLTClient->GetModelLT()->GetPlaying(pTrB) == LT_YES) ? 1 : 0;
+				}
+				VRLog::Msg("VRBody: anim %u time %u playing %d flags %08X", (uint32)hAB, nTB, bPlayB,
+					g_pLTClient->GetObjectFlags(hPlObj));
+			}
+			if (bFP && bMir && s_frame.nCount < VRMODELS_MAX_INST)
+			{
+				// Twice: this one for the eyes, a copy after it for mirrors.
+				// Same nodes, so the same pose.
+				VRModelInst& mm = s_frame.inst[s_frame.nCount];
+				mm = mi;
+				mm.nFlags |= VRMODEL_F_MIRRORONLY;
+				VRBodyHideArms(hPlObj, mi, bArmsFP);
+				++s_frame.nCount;
+			}
+			else if (bMir) mi.nFlags |= VRMODEL_F_MIRRORONLY;
+			else if (bFP)  VRBodyHideArms(hPlObj, mi, bArmsFP);
+
+			// The eyes' body, moved further back along the ground on its OWN
+			// copy of the skeleton (the mirror's copy keeps the original).
+			const float fEyesBack = g_vtVRBodyBackEyes.GetFloat() * 58.75f;
+			if (bFP && fEyesBack != 0.0f
+				&& s_frame.nNodeCount + mi.nNodeCount <= VRMODELS_MAX_NODES)
+			{
+				LTVector vFlatE(vCamF.x, 0.0f, vCamF.z);
+				if (vFlatE.Mag() < 0.001f) vFlatE = vCamU * (vCamF.y < 0.0f ? 1.0f : -1.0f);
+				vFlatE.y = 0.0f; vFlatE.Norm();
+				const LTVector vOffE = vFlatE * -fEyesBack;
+				const uint32 nFirstE = s_frame.nNodeCount;
+				// ...BUT NOT HER ARMS. Set back with the rest, the hands stopped
+				// 10-17 cm short of the controllers - her standing shoulders are
+				// already 20 cm behind the eye - and the gun floated in front of
+				// them. The forearms and hands stay
+				// where the mirror has them, bent to the controllers; the body
+				// goes back, and the upper arms between are not drawn here.
+				// VRBodyArms 2: the WHOLE arm instead, set back with the body
+				// and bent again from its shoulder, stretched to reach.
+				const bool bWholeArms = bArmsFP && g_vtVRBodyArms.GetFloat() > 1.5f;
+				uint32 nArmMask[4] = { 0, 0, 0, 0 };
+				if (bArmsFP && !bWholeArms) VRBodyArmNodeMask(hPlObj, nArmMask);
+				for (uint32 z = 0; z < mi.nNodeCount; ++z)
+				{
+					VRModelNode vn = s_frame.nodes[mi.nNodeFirst + z];
+					if (!(z < 128 && (nArmMask[z >> 5] & (1u << (z & 31)))))
+					{
+						vn.m[3] += vOffE.x; vn.m[7] += vOffE.y; vn.m[11] += vOffE.z;
+					}
+					s_frame.nodes[nFirstE + z] = vn;
+				}
+				s_frame.nNodeCount += mi.nNodeCount;
+				if (bWholeArms)
+				{
+					float fSt[2] = { 1.0f, 1.0f }, fEyeD[2] = { 0.0f, 0.0f };
+					static float s_fEyeMin[2] = { 1.0e9f, 1.0e9f };
+					for (int sd = 0; sd < 2; ++sd)
+					{
+						if (!bArmIK[sd]) continue;
+						const int k0 = nArmIdx[sd][0] - (int)mi.nNodeFirst;
+						const int k1 = nArmIdx[sd][1] - (int)mi.nNodeFirst;
+						const int k2 = nArmIdx[sd][2] - (int)mi.nNodeFirst;
+						if (k0 < 0 || k1 < 0 || k2 < 0 || k0 >= (int)mi.nNodeCount
+							|| k1 >= (int)mi.nNodeCount || k2 >= (int)mi.nNodeCount) continue;
+						// Stretched at most 1.25x: at 1.4 an arm raised to aim ran
+						// long under the view.
+						fSt[sd] = VRArmResolve(s_frame.nodes[nFirstE + k0], s_frame.nodes[nFirstE + k1],
+											   s_frame.nodes[nFirstE + k2], vArmWant[sd], sd == 1, vCamR, vCamF,
+											   1.25f, vEye, &fEyeD[sd]);
+						if (fEyeD[sd] < s_fEyeMin[sd]) s_fEyeMin[sd] = fEyeD[sd];
+					}
+					if ((m_nVRModelFrame % 450) == 0)
+					{
+						VRLog::Msg("VRArm: the eyes' whole arms, set back %.1f units, stretched right x%.2f left x%.2f;"
+							" nearest the eye since the last line right %.1f left %.1f units; elbow flips right %ld left %ld",
+							fEyesBack, fSt[0], fSt[1], s_fEyeMin[0], s_fEyeMin[1], s_nElbowFlips[0], s_nElbowFlips[1]);
+						s_fEyeMin[0] = s_fEyeMin[1] = 1.0e9f;
+						s_nElbowFlips[0] = s_nElbowFlips[1] = 0;
+					}
+				}
+				mi.nNodeFirst = nFirstE;
+				mi.fPos[0] += vOffE.x; mi.fPos[1] += vOffE.y; mi.fPos[2] += vOffE.z;
+			}
+		}
+	}
+
+	// THE MIRROR SHOWS THE GUN YOU HOLD: a copy of the view weapon, mirrors
+	// only. Her hand-held copy of it floated beside her hand by her face
+	//, and could only ever be as right as the arm's
+	// guess at her wrist; the view weapon is exactly where the gun in your hand
+	// is. It keeps the view weapon's flag, so the renderer still hides the
+	// weapon's own first-person arms. Not the fists: her own hands are them.
+	bool bMirrorViewGun = false;
+	if (bMirBody && nViewInst >= 0 && (uint32)nViewInst < s_frame.nCount
+		&& s_frame.nCount < VRMODELS_MAX_INST && g_vtVRBodyGunGrip.GetFloat() <= 0.0f)
+	{
+		char szMirGun[64] = "";
+		VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szMirGun, sizeof(szMirGun));
+		if (szMirGun[0] && _stricmp(szMirGun, "fisty_cuffs") != 0
+			&& (s_frame.inst[nViewInst].nFlags & VRMODEL_F_VIEWMODEL))
+		{
+			VRModelInst& c = s_frame.inst[s_frame.nCount];
+			c = s_frame.inst[nViewInst];
+			c.nFlags &= ~VRMODEL_F_INVISIBLE;
+			c.nFlags |= VRMODEL_F_MIRRORONLY;
+			++s_frame.nCount;
+			bMirrorViewGun = true;
+			static int s_nSaidMirGun = 0;
+			if (s_nSaidMirGun < 2) { ++s_nSaidMirGun; VRLog::Msg("VRBody: the mirror shows the view weapon (%s)", szMirGun); }
+		}
+	}
+	if (bMirBody && bHandMoved && nHHCount && !bMirrorViewGun)
+	{
+		int nBest = -1; float fBestD2 = 25.0f * 25.0f;
+		for (uint32 k = 0; k < nHHCount; ++k)
+		{
+			if (nHHIdx[k] >= s_frame.nCount) continue;
+			const VRModelInst& w = s_frame.inst[nHHIdx[k]];
+			if (w.nObject != nHHObj[k]) continue;
+			const float dx = w.fPos[0] - vHandOld.x, dy = w.fPos[1] - vHandOld.y, dz = w.fPos[2] - vHandOld.z;
+			const float d2 = dx*dx + dy*dy + dz*dz;
+			if (d2 < fBestD2) { fBestD2 = d2; nBest = (int)nHHIdx[k]; }
+		}
+		if (nBest >= 0)
+		{
+			VRModelInst& w = s_frame.inst[nBest];
+			w.nFlags &= ~VRMODEL_F_INVISIBLE;
+			w.nFlags |= VRMODEL_F_MIRRORONLY;
+			// CARRIED BY THE HAND ITSELF: gun' = hand(final) * hand(animated)^-1
+			// * gun. Rebuilt from the arm's own rotation, the gun sat beside her
+			// hand by her face in the mirror; this way it
+			// is wherever the hand is, held as the animation holds it - after
+			// the wrist, the tuner's GUN HAND nudge, anything.
+			bool bCarried = false;
+			if (!VRShared::SwapHands() && bRightHandAnim && nPlArm[0][2] >= 0
+				&& (uint32)nPlArm[0][2] < s_frame.nNodeCount)
+			{
+				const VRModelNode& hA = nRightHandAnim;
+				const VRModelNode& hF = s_frame.nodes[nPlArm[0][2]];
+				// The animated hand's 3x3 inverse (general: a node may carry scale).
+				const float a0 = hA.m[0], a1 = hA.m[1], a2 = hA.m[2];
+				const float a3 = hA.m[4], a4 = hA.m[5], a5 = hA.m[6];
+				const float a6 = hA.m[8], a7 = hA.m[9], a8 = hA.m[10];
+				const float det = a0*(a4*a8 - a5*a7) - a1*(a3*a8 - a5*a6) + a2*(a3*a7 - a4*a6);
+				if (fabs(det) > 1.0e-6f)
+				{
+					const float id = 1.0f / det;
+					const float I[9] = {
+						 (a4*a8 - a5*a7)*id, -(a1*a8 - a2*a7)*id,  (a1*a5 - a2*a4)*id,
+						-(a3*a8 - a5*a6)*id,  (a0*a8 - a2*a6)*id, -(a0*a5 - a2*a3)*id,
+						 (a3*a7 - a4*a6)*id, -(a0*a7 - a1*a6)*id,  (a0*a4 - a1*a3)*id };
+					const float F[9] = { hF.m[0], hF.m[1], hF.m[2], hF.m[4], hF.m[5], hF.m[6], hF.m[8], hF.m[9], hF.m[10] };
+					float Mr[9];	// hand(final) * hand(animated)^-1
+					for (int r = 0; r < 3; ++r)
+						for (int cc = 0; cc < 3; ++cc)
+							Mr[r*3+cc] = F[r*3+0]*I[0*3+cc] + F[r*3+1]*I[1*3+cc] + F[r*3+2]*I[2*3+cc];
+					const LTVector tA(hA.m[3], hA.m[7], hA.m[11]), tF(hF.m[3], hF.m[7], hF.m[11]);
+					// p' = Mr (p - animated hand) + final hand; each basis turns by Mr.
+					{
+						const LTVector d(w.fPos[0] - tA.x, w.fPos[1] - tA.y, w.fPos[2] - tA.z);
+						w.fPos[0] = Mr[0]*d.x + Mr[1]*d.y + Mr[2]*d.z + tF.x;
+						w.fPos[1] = Mr[3]*d.x + Mr[4]*d.y + Mr[5]*d.z + tF.y;
+						w.fPos[2] = Mr[6]*d.x + Mr[7]*d.y + Mr[8]*d.z + tF.z;
+					}
+					for (uint32 z = 0; z < w.nNodeCount; ++z)
+					{
+						VRModelNode& n = s_frame.nodes[w.nNodeFirst + z];
+						const float M[9] = { n.m[0], n.m[1], n.m[2], n.m[4], n.m[5], n.m[6], n.m[8], n.m[9], n.m[10] };
+						float O[9];
+						for (int r = 0; r < 3; ++r)
+							for (int cc = 0; cc < 3; ++cc)
+								O[r*3+cc] = Mr[r*3+0]*M[0*3+cc] + Mr[r*3+1]*M[1*3+cc] + Mr[r*3+2]*M[2*3+cc];
+						n.m[0] = O[0]; n.m[1] = O[1]; n.m[2] = O[2];
+						n.m[4] = O[3]; n.m[5] = O[4]; n.m[6] = O[5];
+						n.m[8] = O[6]; n.m[9] = O[7]; n.m[10] = O[8];
+						const LTVector d(n.m[3] - tA.x, n.m[7] - tA.y, n.m[11] - tA.z);
+						n.m[3]  = Mr[0]*d.x + Mr[1]*d.y + Mr[2]*d.z + tF.x;
+						n.m[7]  = Mr[3]*d.x + Mr[4]*d.y + Mr[5]*d.z + tF.y;
+						n.m[11] = Mr[6]*d.x + Mr[7]*d.y + Mr[8]*d.z + tF.z;
+					}
+					bCarried = true;
+				}
+			}
+			if (!bCarried)
+			{
+			const float* R = fHandR;
+			// p' = R (p - hand before) + hand after, for the position and for
+			// every node; each node's basis turns by R.
+			{
+				const LTVector d(w.fPos[0] - vHandOld.x, w.fPos[1] - vHandOld.y, w.fPos[2] - vHandOld.z);
+				w.fPos[0] = R[0]*d.x + R[1]*d.y + R[2]*d.z + vHandNew.x;
+				w.fPos[1] = R[3]*d.x + R[4]*d.y + R[5]*d.z + vHandNew.y;
+				w.fPos[2] = R[6]*d.x + R[7]*d.y + R[8]*d.z + vHandNew.z;
+			}
+			for (uint32 z = 0; z < w.nNodeCount; ++z)
+			{
+				VRModelNode& n = s_frame.nodes[w.nNodeFirst + z];
+				const float M[9] = { n.m[0], n.m[1], n.m[2], n.m[4], n.m[5], n.m[6], n.m[8], n.m[9], n.m[10] };
+				float O[9];
+				for (int r = 0; r < 3; ++r)
+					for (int cc = 0; cc < 3; ++cc)
+						O[r*3+cc] = R[r*3+0]*M[0*3+cc] + R[r*3+1]*M[1*3+cc] + R[r*3+2]*M[2*3+cc];
+				n.m[0] = O[0]; n.m[1] = O[1]; n.m[2] = O[2];
+				n.m[4] = O[3]; n.m[5] = O[4]; n.m[6] = O[5];
+				n.m[8] = O[6]; n.m[9] = O[7]; n.m[10] = O[8];
+				const LTVector d(n.m[3] - vHandOld.x, n.m[7] - vHandOld.y, n.m[11] - vHandOld.z);
+				n.m[3]  = R[0]*d.x + R[1]*d.y + R[2]*d.z + vHandNew.x;
+				n.m[7]  = R[3]*d.x + R[4]*d.y + R[5]*d.z + vHandNew.y;
+				n.m[11] = R[6]*d.x + R[7]*d.y + R[8]*d.z + vHandNew.z;
+			}
+			}
+			static int s_nSaidGun = 0;
+			if (s_nSaidGun < 3)
+			{
+				++s_nSaidGun;
+				VRLog::Msg("VRBody: the mirror's gun - object %08X, %.1f units from the animated hand, moved to the bent one",
+					w.nObject, (float)sqrt(fBestD2));
+			}
+		}
 	}
 
 	s_pfn(&s_frame);
@@ -7291,6 +8483,26 @@ void CGameClientShell::VRPublishModels()
 					nAdd);
 			}
 		}
+	}
+
+	// ---- CHROME: the map the retail renderer put on flagged models ------
+	//
+	// The file this world set with "EnvMap" (Tex\Chrome.dtx unless the level
+	// names another), and nothing when the game's own Chrome option
+	// (EnvMapEnable) is off - the retail renderer honoured that switch.
+	{
+		typedef void (__cdecl *VREnvPublishFn)(const char*);
+		static VREnvPublishFn s_pfnE = NULL;
+		static HMODULE s_hRenSeenE = (HMODULE)(uintptr_t)1;
+		HMODULE h = GetModuleHandleA("d3dstub.ren");
+		if (h != s_hRenSeenE)
+		{
+			s_hRenSeenE = h;
+			s_pfnE = h ? (VREnvPublishFn)GetProcAddress(h, "R3D_PublishModelEnvMap") : NULL;
+			VRLog::Msg("VREnvMap: publish entry %s", s_pfnE ? "resolved" : "missing");
+		}
+		if (s_pfnE)
+			s_pfnE(GetConsoleInt("EnvMapEnable", 1) ? g_szVREnvMapName : "");
 	}
 
 	// ---- FOG, which this client has been computing since 2000 -----------
@@ -8101,7 +9313,31 @@ void CGameClientShell::VRUpdateControllerInput()
 		// features sharing a button. Only while the tuner is ON; ordinary play
 		// keeps its run key.
 		const bool bTuning = (g_vtVRFlashTune.GetFloat() > 0.0f);
-		Local::Set(this,  6, !bTuning && (L.nButtons & VRBTN_GRIP) != 0);	// RUN
+		// THE SUPPORT HAND takes the same grip, so while it holds the pistol
+		// the grip does not also RUN. Engages within VRSupportRangeCm of the
+		// gun hand; once on, it stays until the grip opens or the hands part
+		// by half as far again, so it does not flicker at the edge.
+		{
+			const bool bWas = s_bVRSupport;
+			bool bOn = false;
+			if (!bTuning && !bRiding && GetConsoleInt("VRSupportHand", 1) > 0
+				&& L.nActive && R.nActive && (L.nButtons & VRBTN_GRIP)
+				&& VRSupportWeaponOut(m_weaponModel))
+			{
+				const float dx = L.fPosX - R.fPosX, dy = L.fPosY - R.fPosY, dz = L.fPosZ - R.fPosZ;
+				const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+				const float r = 0.01f * (float)GetConsoleInt("VRSupportRangeCm", 22);
+				bOn = (d < r) || (bWas && d < r * 1.5f);
+			}
+			s_bVRSupport = bOn;
+			static int s_nSaidSup = 0;
+			if (bOn != bWas && s_nSaidSup < 20)
+			{
+				++s_nSaidSup;
+				VRLog::Msg("VRSupportHand: %s", bOn ? "on - the off hand is on the pistol" : "off");
+			}
+		}
+		Local::Set(this,  6, !bTuning && !s_bVRSupport && (L.nButtons & VRBTN_GRIP) != 0);	// RUN
 		Local::Set(this,  7, (R.nButtons & VRBTN_SECONDARY) != 0);	// DUCK     B
 		Local::Set(this,  8, (R.nButtons & VRBTN_PRIMARY)   != 0);	// JUMP     A
 		bool bVRFireNow = !bRiding && (R.nButtons & VRBTN_TRIGGER) != 0;	// the throttle while riding
@@ -13317,7 +14553,8 @@ void CGameClientShell::OnCommandOn(int command)
 	// up from, which is a worse outcome than losing the tuning.
 	if (g_vtVRFlashTune.GetFloat() > 0.0f &&
 		(command == COMMAND_ID_NEXT_WEAPON || command == COMMAND_ID_PREV_WEAPON
-		 || command == COMMAND_ID_HOLSTER || command == COMMAND_ID_QUICKSAVE))
+		 || command == COMMAND_ID_HOLSTER || command == COMMAND_ID_QUICKSAVE
+		 || VRTunerOwnsCommand(command)))
 	{
 		static int s_nSaidCycle = 0;
 		if (s_nSaidCycle < 3)
@@ -13975,12 +15212,12 @@ void CGameClientShell::UpdatePlayerFlags()
 
 	m_dwPlayerFlags = m_MoveMgr.GetControlFlags();
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_LOOKUP))
+    if (g_pLTClient->IsCommandOn(COMMAND_ID_LOOKUP) && !VRTunerOwnsCommand(COMMAND_ID_LOOKUP))
 	{
 		m_dwPlayerFlags |= BC_CFLG_LOOKUP;
 	}
 
-    if (g_pLTClient->IsCommandOn(COMMAND_ID_LOOKDOWN))
+    if (g_pLTClient->IsCommandOn(COMMAND_ID_LOOKDOWN) && !VRTunerOwnsCommand(COMMAND_ID_LOOKDOWN))
 	{
 		m_dwPlayerFlags |= BC_CFLG_LOOKDOWN;
 	}
@@ -14681,6 +15918,41 @@ void CGameClientShell::HandlePlayerDamage(HMESSAGEREAD hMessage)
 	VEC_ADD(vCamPos, vCamPos, vF);
 
     FlashScreen(vFlashColor, vCamPos, 1000.0f, fRampUp, fFlashTime, fRampDown, LTTRUE);
+
+	// A HIT YOU FEEL. One pulse on the controller on the side the damage came
+	// from - the flash says you were hit, the hand says where from. Stronger
+	// and longer for a harder hit, softer when the armour took it. A tester
+	// asked for it after finding the firing rumble right. The side is the
+	// PHYSICAL controller, so it is undone through the Leftorium's hand swap
+	// (Haptic names the logical hand). VRHaptics 0 or VRHapticsDamage 0 turns
+	// it off.
+	{
+		static VarTrack s_vtHapDmg;
+		if (!s_vtHapDmg.IsInitted()) s_vtHapDmg.Init(g_pLTClient, "VRHapticsDamage", LTNULL, 1.0f);
+		if (VRShared::IsLive() && g_vtVRHaptics.GetFloat() > 0.0f && s_vtHapDmg.GetFloat() > 0.0f)
+		{
+			LTRotation rBody;
+			LTVector vBU, vBR, vBF;
+			GetPlayerRotation(&rBody);
+			g_pLTClient->GetRotationVectors(&rBody, &vBU, &vBR, &vBF);
+			LTVector vFrom = vDir;
+			if (VEC_MAG(vFrom) > 0.0001f) vFrom.Norm();
+			// vDir points the way the damage travelled: it came FROM the
+			// opposite side. Dead ahead or behind, it lands on the right.
+			const int nPhysical = (VEC_DOT(vFrom, vBR) > 0.1f) ? 0 : 1;
+			const int nLogical = nPhysical ^ (VRShared::SwapHands() ? 1 : 0);
+			float fK = fPercent * 2.0f;
+			if (fK > 1.0f) fK = 1.0f;
+			const float fAmp = bUsingDamage ? (0.55f + 0.45f * fK) : 0.35f;
+			const float fMs  = bUsingDamage ? (60.0f + 90.0f * fK) : 40.0f;
+			VRShared::Haptic(nLogical, fAmp, fMs);
+			VRLog::Msg("Haptics: hit from the %s (%.0f%%%s) - %s controller, %.2f for %.0f ms"
+				" | travel (%+.2f %+.2f %+.2f) body right (%+.2f %+.2f %+.2f)",
+				nPhysical ? "right" : "left", fPercent * 100.0f, bUsingDamage ? "" : ", armour",
+				nPhysical ? "right" : "left", fAmp, fMs,
+				vFrom.x, vFrom.y, vFrom.z, vBR.x, vBR.y, vBR.z);
+		}
+	}
 
 	// Tilt the camera based on the direction the damage came from...
 
@@ -15968,6 +17240,166 @@ namespace VRTuneSave
 	}
 }
 
+// THE HAND TUNER (VRHandTune 1). Both hands, where each sits on its controller
+// and how it is rolled, and nothing else: the weapon tuner's nine gun modes, a
+// held muzzle flash and a long readout were in the way of tuning two hands
+//. Same keys as the weapon tuner:
+//   End            next page: LEFT HAND, LEFT ROLL, RIGHT HAND, RIGHT ROLL,
+//                  GUN (the gun moved in the hand, per gun), HAND SIZE
+//   Left / Right   the hand left / right         (ROLL pages: roll it)
+//   PgUp / PgDn    up / down
+//   Up / Down      forward / back
+//   Home           step: fine / normal / coarse
+//   Insert         this page back to its default
+// Saved to vrtune.cfg a moment after the last press, like the weapon tuner.
+// Right means YOUR right on both hands: the stored value is the wrist's offset
+// toward the other hand, so the right hand's is turned about.
+static void VRHandTuneStep(char* szOut, int nOut, const char* pszGun)
+{
+	static bool s_bDown[8] = { false };
+	const int nKey[8] = { VK_LEFT, VK_RIGHT, VK_PRIOR, VK_NEXT, VK_DOWN, VK_UP, VK_HOME, VK_INSERT };
+	bool bHit[9] = { false };
+	for (int k = 0; k < 8; ++k)
+	{
+		const bool bNow = (GetAsyncKeyState(nKey[k]) & 0x8000) != 0;
+		bHit[k] = bNow && !s_bDown[k];
+		s_bDown[k] = bNow;
+	}
+	static bool s_bEnd = false;
+	{
+		const bool bNow = (GetAsyncKeyState(VK_END) & 0x8000) != 0;
+		bHit[8] = bNow && !s_bEnd;
+		s_bEnd = bNow;
+	}
+	static int s_nPage = 0;		// 0 left hand, 1 left roll, 2 right hand, 3 right roll, 4 gun, 5 hand size
+	static int s_nStep = 1;		// 0 fine, 1 normal, 2 coarse
+	if (bHit[8]) s_nPage = (s_nPage + 1) % 6;
+	if (bHit[6]) s_nStep = (s_nStep + 1) % 3;
+	const float kCm[3]  = { 0.5f, 1.0f, 2.0f };
+	const float kDeg[3] = { 2.0f, 5.0f, 15.0f };
+	const bool bRoll  = (s_nPage == 1 || s_nPage == 3);
+	const bool bLeft  = (s_nPage < 2);
+
+	struct V
+	{
+		static float Get(const char* n) { HCONSOLEVAR h = g_pLTClient->GetConsoleVar((char*)n); return h ? g_pLTClient->GetVarValueFloat(h) : 0.0f; }
+		static void  Set(const char* n, float f)
+		{
+			char szCmd[96]; sprintf(szCmd, "%s %f", n, f);
+			g_pLTClient->RunConsoleString(szCmd);
+			VRTuneSave::Remember(n, f);
+		}
+	};
+	// GUN: the gun you hold moved in the hand - VRGripOffR/U/F@<gun>, the
+	// drawn gun's own grip offset (world units along the gun, shown in cm), so
+	// the hand stays where it was tuned and the gun is fitted to it.
+	if (s_nPage == 4)
+	{
+		const bool bGun = pszGun && pszGun[0] && _stricmp(pszGun, "fisty_cuffs") != 0;
+		if (bGun)
+		{
+			char szR[96], szU[96], szF[96];
+			_snprintf(szR, 95, "VRGripOffR@%s", pszGun); szR[95] = 0;
+			_snprintf(szU, 95, "VRGripOffU@%s", pszGun); szU[95] = 0;
+			_snprintf(szF, 95, "VRGripOffF@%s", pszGun); szF[95] = 0;
+			const float d = kCm[s_nStep] * 0.5875f;		// cm -> world units
+			bool bCh = false;
+			if (bHit[0]) { V::Set(szR, V::Get(szR) - d); bCh = true; }
+			if (bHit[1]) { V::Set(szR, V::Get(szR) + d); bCh = true; }
+			if (bHit[2]) { V::Set(szU, V::Get(szU) + d); bCh = true; }
+			if (bHit[3]) { V::Set(szU, V::Get(szU) - d); bCh = true; }
+			if (bHit[5]) { V::Set(szF, V::Get(szF) + d); bCh = true; }
+			if (bHit[4]) { V::Set(szF, V::Get(szF) - d); bCh = true; }
+			if (bHit[7]) { V::Set(szR, 0.0f); V::Set(szU, 0.0f); V::Set(szF, 0.0f); bCh = true; }
+			if (bCh)
+			{
+				VRFlashOffsetsInvalidate();		// the grip reader caches which variable answered
+				VRLog::Msg("VRHandTune: GUN %s  right %+.2f  up %+.2f  fwd %+.2f units", pszGun, V::Get(szR), V::Get(szU), V::Get(szF));
+				VRTuneSave::Write();
+			}
+			_snprintf(szOut, nOut, "GUN %s  right %+.1f  up %+.1f  fwd %+.1f cm  (%s)", pszGun,
+				V::Get(szR) * 1.702f, V::Get(szU) * 1.702f, V::Get(szF) * 1.702f,
+				s_nStep == 0 ? "fine" : s_nStep == 1 ? "normal" : "coarse");
+		}
+		else
+			_snprintf(szOut, nOut, "GUN  - draw a gun first");
+		szOut[nOut - 1] = '\0';
+		return;
+	}
+	// HAND SIZE: both hands, Up/Down (and PgUp/PgDn), 0.02 / 0.05 / 0.10 a press.
+	if (s_nPage == 5)
+	{
+		const float kScale[3] = { 0.02f, 0.05f, 0.10f };
+		bool bCh = false;
+		if (bHit[5] || bHit[2]) { V::Set("VRBodyHandScale", V::Get("VRBodyHandScale") + kScale[s_nStep]); bCh = true; }
+		if (bHit[4] || bHit[3]) { V::Set("VRBodyHandScale", V::Get("VRBodyHandScale") - kScale[s_nStep]); bCh = true; }
+		if (bHit[7]) { V::Set("VRBodyHandScale", 1.0f); bCh = true; }
+		if (bCh)
+		{
+			VRLog::Msg("VRHandTune: HAND SIZE x%.2f", V::Get("VRBodyHandScale"));
+			VRTuneSave::Write();
+		}
+		_snprintf(szOut, nOut, "HAND SIZE  x%.2f  (%s)", V::Get("VRBodyHandScale"),
+			s_nStep == 0 ? "fine" : s_nStep == 1 ? "normal" : "coarse");
+		szOut[nOut - 1] = '\0';
+		return;
+	}
+	const char* pszR = bLeft ? "VRBodyPalmR" : "VRBodyRPalmR";
+	const char* pszU = bLeft ? "VRBodyPalmU" : "VRBodyRPalmU";
+	const char* pszF = bLeft ? "VRBodyPalmF" : "VRBodyRPalmF";
+	const char* pszRoll = bLeft ? "VRBodyOffRoll" : "VRBodyRightRoll";
+	bool bChanged = false;
+	if (bRoll)
+	{
+		// Right arrow turns the hand clockwise, seen from behind it; a
+		// positive roll is counter-clockwise on both hands.
+		const float d = kDeg[s_nStep];
+		if (bHit[0]) { V::Set(pszRoll, V::Get(pszRoll) + d); bChanged = true; }
+		if (bHit[1]) { V::Set(pszRoll, V::Get(pszRoll) - d); bChanged = true; }
+		if (bHit[7]) { V::Set(pszRoll, bLeft ? 160.0f : 265.0f); bChanged = true; }
+	}
+	else
+	{
+		const float d = kCm[s_nStep] * 0.01f;
+		// Toward the other hand is + on both; your right is + for the left
+		// hand and - for the right.
+		const float fRightIs = bLeft ? 1.0f : -1.0f;
+		if (bHit[0]) { V::Set(pszR, V::Get(pszR) - d * fRightIs); bChanged = true; }
+		if (bHit[1]) { V::Set(pszR, V::Get(pszR) + d * fRightIs); bChanged = true; }
+		if (bHit[2]) { V::Set(pszU, V::Get(pszU) + d); bChanged = true; }
+		if (bHit[3]) { V::Set(pszU, V::Get(pszU) - d); bChanged = true; }
+		if (bHit[5]) { V::Set(pszF, V::Get(pszF) + d); bChanged = true; }
+		if (bHit[4]) { V::Set(pszF, V::Get(pszF) - d); bChanged = true; }
+		if (bHit[7]) { V::Set(pszR, -0.075f); V::Set(pszU, -0.05f); V::Set(pszF, -0.15f); bChanged = true; }
+	}
+	if (bChanged)
+		VRLog::Msg("VRHandTune: %s  in %+.3f  up %+.3f  fwd %+.3f m  roll %.0f",
+			bLeft ? "LEFT" : "RIGHT", V::Get(pszR), V::Get(pszU), V::Get(pszF), V::Get(pszRoll));
+
+	// Saved 1.5 s after the last change, as the weapon tuner does.
+	static bool   s_bDirty = false;
+	static double s_fSaveAt = 0.0, s_fSavedAt = -100.0;
+	const double fNow = g_pLTClient->GetTime();
+	if (bChanged) { s_bDirty = true; s_fSaveAt = fNow + 1.5; }
+	else if (s_bDirty && fNow >= s_fSaveAt)
+	{
+		s_bDirty = false;
+		if (VRTuneSave::Write()) { s_fSavedAt = fNow; VRLog::Msg("VRHandTune: saved to game/vrtune.cfg"); }
+		else VRLog::Msg("VRHandTune: COULD NOT WRITE game/vrtune.cfg");
+	}
+	const char* kStep[3] = { "fine", "normal", "coarse" };
+	// Shown as your right, in centimetres.
+	const float fRightShown = V::Get(pszR) * 100.0f * (bLeft ? 1.0f : -1.0f);
+	if (bRoll)
+		_snprintf(szOut, nOut, "%s ROLL  %.0f deg  (%s)%s", bLeft ? "LEFT" : "RIGHT", V::Get(pszRoll),
+			kStep[s_nStep], (fNow - s_fSavedAt) < 2.0 ? "  SAVED" : "");
+	else
+		_snprintf(szOut, nOut, "%s HAND  right %+.1f  up %+.1f  fwd %+.1f cm  (%s)%s", bLeft ? "LEFT" : "RIGHT",
+			fRightShown, V::Get(pszU) * 100.0f, V::Get(pszF) * 100.0f,
+			kStep[s_nStep], (fNow - s_fSavedAt) < 2.0 ? "  SAVED" : "");
+	szOut[nOut - 1] = '\0';
+}
+
 void CGameClientShell::VRFlashTuneUpdate()
 {
 	if (g_vtVRFlashTune.GetFloat() <= 0.0f) return;
@@ -16205,12 +17637,12 @@ void CGameClientShell::VRFlashTuneUpdate()
 		{
 			s_bModeInit = true;
 			const int nWant = (int)s_vtMode.GetFloat();
-			if (nWant >= 0 && nWant <= 8) { s_nTuneMode = nWant; bChangedStep = true; }
+			if (nWant >= 0 && nWant <= 12) { s_nTuneMode = nWant; bChangedStep = true; }
 		}
 	}
 	if (bHit[9])
 	{
-		s_nTuneMode = (s_nTuneMode + 1) % 9;
+		s_nTuneMode = (s_nTuneMode + 1) % 13;
 		bChangedStep = true;			// reuse the "say it on screen" path
 	}
 	// ANGLE: the gun's own orientation in the hand, degrees. Left/Right turn it
@@ -16230,8 +17662,19 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// seeded from the mesh's radius on the first nudge; Insert puts the mesh
 	// back. LENS moves in fifths of the step and LENS SIZE in tenths - a
 	// half-unit step could not land the disc on a 2 cm eyepiece.
-	static const char* kModeName[9] = { "FLASH", "TRACER", "CASING", "ANGLE", "SCALE", "GRIP", "AIM", "LENS", "LENS SIZE" };
-	static const char* kModeBase[9][3] = {
+	// THE ARMS (Show body), after the gun's modes:
+	//   HAND      where her gun hand closes on the grip, PER GUN, world units
+	//             along the gun: Left/Right across, PgUp/PgDn up, Up/Down along.
+	//   BODY      Up/Down how far her shoulders sit behind your eyes (metres),
+	//             PgUp/PgDn how far an arm may stretch to reach (x).
+	//   OFF HAND  the other hand's wrist against its controller, metres:
+	//             Left/Right in, PgUp/PgDn up, Up/Down forward.
+	//   OFF TURN  that hand's turn against its controller, degrees: Left/Right
+	//             roll, PgUp/PgDn yaw (toward the other hand), Up/Down pitch.
+	// Insert puts the mode back to its defaults, not to zero.
+	static const char* kModeName[13] = { "FLASH", "TRACER", "CASING", "ANGLE", "SCALE", "GRIP", "AIM", "LENS", "LENS SIZE",
+										 "HAND", "BODY", "OFF HAND", "OFF TURN" };
+	static const char* kModeBase[13][3] = {
 		{ "VRFlashOffR",  "VRFlashOffU",  "VRFlashOffF"  },
 		{ "VRTracerOffR", "VRTracerOffU", "VRTracerOffF" },
 		{ "VRShellOffR",  "VRShellOffU",  "VRShellOffF"  },
@@ -16241,8 +17684,12 @@ void CGameClientShell::VRFlashTuneUpdate()
 		{ "VRAimYaw",     "",             "VRAimPitch"   },
 		{ "VRLensOffR",   "VRLensOffU",   "VRLensOffF"   },
 		{ "",             "",             "VRLensRad"    },
+		{ "VRBodyGripR",  "VRBodyGripUp", "VRBodyGripFwd" },
+		{ "",             "VRBodyStretch","VRBodyShoulderBack" },
+		{ "VRBodyPalmR",  "VRBodyPalmU",  "VRBodyPalmF"  },
+		{ "VRBodyOffRoll","VRBodyOffYaw", "VRBodyOffPitch" },
 	};
-	static const char* kModeLabel[9][3] = {
+	static const char* kModeLabel[13][3] = {
 		{ "R", "U", "F" }, { "R", "U", "F" }, { "R", "U", "F" },
 		{ "yaw", "roll", "pitch" },
 		{ "-", "-", "scale" },
@@ -16250,8 +17697,15 @@ void CGameClientShell::VRFlashTuneUpdate()
 		{ "yaw", "-", "pitch" },
 		{ "R", "U", "F" },
 		{ "-", "-", "radius" },
+		{ "R", "U", "F" },
+		{ "-", "stretch x", "back m" },
+		{ "in m", "up m", "fwd m" },
+		{ "roll", "yaw", "pitch" },
 	};
 	const bool bScaleMode = (s_nTuneMode == 4);
+	const bool bArmMode   = (s_nTuneMode >= 9);
+	const bool bArmMetres = (s_nTuneMode == 10 || s_nTuneMode == 11);
+	const bool bArmRoll   = (s_nTuneMode == 12);
 	const bool bLensMode  = (s_nTuneMode == 7);
 	const bool bLensSize  = (s_nTuneMode == 8);
 	const char* pszR = kModeBase[s_nTuneMode][0];
@@ -16260,6 +17714,8 @@ void CGameClientShell::VRFlashTuneUpdate()
 
 	char szSlug[64] = "";
 	VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szSlug, sizeof(szSlug));
+	// BODY, OFF HAND and OFF ROLL are hers, not the gun's: no @gun.
+	if (s_nTuneMode >= 10) szSlug[0] = '\0';
 
 	struct Loc
 	{
@@ -16280,6 +17736,12 @@ void CGameClientShell::VRFlashTuneUpdate()
 			}
 			// No per-weapon radius yet, or a zero one: the mesh's is in use.
 			if (strcmp(pszBase, "VRLensRad") == 0) return s_fVRLensMeshRadius;
+			// No per-gun hand value yet: the global one is in use.
+			if (strncmp(pszBase, "VRBodyGrip", 10) == 0)
+			{
+				HCONSOLEVAR hg = g_pLTClient->GetConsoleVar((char*)pszBase);
+				return hg ? g_pLTClient->GetVarValueFloat(hg) : 0.0f;
+			}
 			return 0.0f;
 		}
 		static void Set(const char* pszBase, const char* pszSlug, float f)
@@ -16301,17 +17763,31 @@ void CGameClientShell::VRFlashTuneUpdate()
 		}
 	};
 
-	const float fNudge = bScaleMode ? fStep * 0.05f : bLensSize ? fStep * 0.1f : bLensMode ? fStep * 0.2f : fStep;
+	// The arms: HAND in world units like GRIP; BODY and OFF HAND in centimetres
+	// a step (0.5 = 5 mm), stretch in 0.01s; OFF ROLL 10 degrees a step unit.
+	const float fNudge = bScaleMode ? fStep * 0.05f : bLensSize ? fStep * 0.1f : bLensMode ? fStep * 0.2f
+					   : bArmMetres ? fStep * 0.01f : bArmRoll ? fStep * 10.0f : fStep;
+	// ...and BODY's stretch, the middle column, in steps of 0.02.
+	const float fNudgeU = (s_nTuneMode == 10) ? fStep * 0.02f : fNudge;
 	if (bHit[0]) { Loc::Set(pszR, szSlug, Loc::Get(pszR, szSlug) - fNudge); bChanged = true; }
 	if (bHit[1]) { Loc::Set(pszR, szSlug, Loc::Get(pszR, szSlug) + fNudge); bChanged = true; }
-	if (bHit[2]) { Loc::Set(pszU, szSlug, Loc::Get(pszU, szSlug) + fNudge); bChanged = true; }
-	if (bHit[3]) { Loc::Set(pszU, szSlug, Loc::Get(pszU, szSlug) - fNudge); bChanged = true; }
+	if (bHit[2]) { Loc::Set(pszU, szSlug, Loc::Get(pszU, szSlug) + fNudgeU); bChanged = true; }
+	if (bHit[3]) { Loc::Set(pszU, szSlug, Loc::Get(pszU, szSlug) - fNudgeU); bChanged = true; }
 	if (bHit[4]) { Loc::Set(pszF, szSlug, Loc::Get(pszF, szSlug) - fNudge); bChanged = true; }
 	if (bHit[5]) { Loc::Set(pszF, szSlug, Loc::Get(pszF, szSlug) + fNudge); bChanged = true; }
 	if (bHit[7])
 	{
 		// Only the effect being tuned, so a stray Insert cannot wipe all three.
-		if (bScaleMode)
+		if (bArmMode)
+		{
+			// The arms' defaults, not zeros: a stretch of 0 or shoulders 0 m
+			// back are not a starting point.
+			if (s_nTuneMode == 10) { Loc::Set(pszU, szSlug, 1.2f); Loc::Set(pszF, szSlug, 0.08f); }
+			else if (s_nTuneMode == 11) { Loc::Set(pszR, szSlug, -0.075f); Loc::Set(pszU, szSlug, -0.05f); Loc::Set(pszF, szSlug, -0.15f); }
+			else if (s_nTuneMode == 12) { Loc::Set(pszR, szSlug, 160.0f); Loc::Set(pszU, szSlug, 0.0f); Loc::Set(pszF, szSlug, -5.0f); }
+			else { Loc::Set(pszR, szSlug, 0.0f); Loc::Set(pszU, szSlug, 0.0f); Loc::Set(pszF, szSlug, 0.0f); }
+		}
+		else if (bScaleMode)
 		{
 			// Reset = the global size: set the per-weapon value to it.
 			HCONSOLEVAR hg = g_pLTClient->GetConsoleVar("VRWeaponScale");
@@ -16396,7 +17872,9 @@ void CGameClientShell::VRFlashTuneUpdate()
 	const bool bJustSaved = (g_pLTClient->GetTime() - s_fVRTuneSavedAt) < 2.0;
 
 	char szT[160];
-	sprintf(szT, (bScaleMode || bLensSize) ? "%s %s  %s%+.1f %s%+.1f %s%.3f  step %.3f %s"
+	sprintf(szT, bArmMetres ? "%s %s  %s %+.3f  %s %+.3f  %s %+.3f  step %.3f %s"
+	                        : bArmRoll ? "%s %s  %s %+.0f  %s %+.0f  %s %+.0f  step %.0f %s"
+	                        : (bScaleMode || bLensSize) ? "%s %s  %s%+.1f %s%+.1f %s%.3f  step %.3f %s"
 	                        : bLensMode ? "%s %s  %s%+.2f %s%+.2f %s%+.2f  step %.2f %s"
 	                        : "%s %s  %s%+.1f %s%+.1f %s%+.1f  step %.1f %s",
 			szSlug[0] ? szSlug : "-",
@@ -16429,7 +17907,16 @@ void CGameClientShell::UpdateDebugInfo()
 	}
 
 
-	// The muzzle flash tuner owns the debug surface while it is on.
+	// The hand tuner, and the muzzle flash tuner, own the debug surface while on.
+	if (g_vtVRHandTune.GetFloat() > 0.0f)
+	{
+		char szT[128];
+		char szGun[64] = "";
+		VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szGun, sizeof(szGun));
+		VRHandTuneStep(szT, sizeof(szT), szGun);
+		CreateDebugSurface(szT);
+		return;
+	}
 	if (g_vtVRFlashTune.GetFloat() > 0.0f)
 	{
 		VRFlashTuneUpdate();
@@ -16762,6 +18249,10 @@ void CGameClientShell::FirstUpdate()
     const char* pVal = ((!pEnvMap || !pEnvMap[0]) ? "Tex\\Chrome.dtx" : pEnvMap);
 	sprintf(buf, "EnvMap %s", pVal);
     g_pLTClient->RunConsoleString(buf);
+	// And for our renderer, which cannot read the engine's console: see the
+	// VR chrome publish beside the fog.
+	strncpy(g_szVREnvMapName, pVal, sizeof(g_szVREnvMapName) - 1);
+	g_szVREnvMapName[sizeof(g_szVREnvMapName) - 1] = 0;
 
  	m_nGlobalSoundFilterId = 0;
 
@@ -20299,6 +21790,159 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 }
 
 
+// THE VR BODY'S LEGS. The server animates the player on trackers of its own
+// ("Upper", "Lower", see AnimatorPlayer.cpp) that the client's copy of the
+// object does not have: here her main tracker sat on animation 0 at time 0,
+// and the body stood in one pose and slid. The
+// main tracker cannot be borrowed - the server re-sends its animation 0 and a
+// SetModelAnimation lasted a frame - so the client adds a tracker of its OWN,
+// weighted to the "Lower" set as the server's is, and plays on it what the
+// server would pick: stand, walk, run or crouch (LSt, LW*, LR*, LC*), forward,
+// back or strafing by the way she is moving against the way the view faces,
+// and the jump tuck in the air. Run and crouch are the game's own control
+// flags (run already folds in the run lock). Only while a VR body is wanted.
+static void VRBodyAnimate(HLOCALOBJ hObj, CMoveMgr* pMove, HOBJECT hCamera)
+{
+	const uint32 INVALID_ANI = (uint32)-1;	// as ObjectDLL/Character.h has it
+	ILTModel* pML = g_pLTClient->GetModelLT();
+	if (!hObj || !pMove || !pML) return;
+	static HLOCALOBJ     s_hFor = LTNULL;
+	static LTAnimTracker s_Tr;
+	static bool          s_bTr = false;
+	static uint32        s_nAni = INVALID_ANI;
+	static char          s_cDir = 'F';
+	// A NEW WORLD IS A NEW PLAYER OBJECT even when its handle is the old one:
+	// the engine reuses the slot, and after a level change the same handle
+	// came back. The tracker added to the old object was gone with it, and
+	// the legs stood at time 0 for the rest of the level (headset, 27
+	// September). So the handle AND the world it was added in.
+	static uint32        s_nGenFor = (uint32)-1;
+	if (s_hFor != hObj || s_nGenFor != g_nVRWorldGen)
+	{
+		s_hFor = hObj; s_nGenFor = g_nVRWorldGen; s_nAni = INVALID_ANI; s_bTr = false;
+		memset(&s_Tr, 0, sizeof s_Tr);
+		HMODELWEIGHTSET hSet;
+		if (pML->AddTracker(hObj, &s_Tr) == LT_OK)
+		{
+			s_bTr = true;
+			if (pML->FindWeightSet(hObj, (char*)"Lower", hSet) == LT_OK)
+				pML->SetWeightSet(&s_Tr, hSet);
+			pML->ResetAnim(&s_Tr);
+		}
+		VRLog::Msg("VRBody: legs tracker %s", s_bTr ? "added (Lower weight set)" : "NOT added");
+	}
+	if (!s_bTr) return;
+	{
+		static uint32 s_nTick = 0;
+		if ((++s_nTick % 300) == 0)
+		{
+			uint32 nT = 0; pML->GetCurAnimTime(&s_Tr, nT);
+			LTVector vv = pMove->GetVelocity();
+			LTRotation rr; g_pLTClient->GetObjectRotation(hCamera ? hCamera : hObj, &rr);
+			LTVector ru, rrt, rf; g_pLTClient->GetRotationVectors(&rr, &ru, &rrt, &rf);
+			VRLog::Msg("VRBody: legs tracker animation %u at time %u; velocity (%.0f %.0f %.0f) camera fwd (%.2f %.2f %.2f) right (%.2f %.2f %.2f) flags %08X ground %d",
+				s_nAni, nT, vv.x, vv.y, vv.z, rf.x, rf.y, rf.z, rrt.x, rrt.y, rrt.z, pMove->GetControlFlags(), pMove->IsOnGround() ? 1 : 0);
+		}
+	}
+
+	LTVector v = pMove->GetVelocity(); v.y = 0.0f;
+	const float fSpeed = v.Mag();
+	const uint32 dwCF = pMove->GetControlFlags();
+	const bool bDuck = (dwCF & BC_CFLG_DUCK) != 0;
+	const bool bRun  = (dwCF & BC_CFLG_RUN) != 0;
+
+	// MOVING OR NOT, with hysteresis on the speed too: a stick resting near
+	// its dead zone crossed one threshold back and forth.
+	static bool s_bMoving = false;
+	s_bMoving = s_bMoving ? (fSpeed > 8.0f) : (fSpeed > 20.0f);
+
+	char szName[8] = "LSt";
+	bool bLoco = false, bUrgent = false;
+	if (!pMove->IsOnGround() && !pMove->IsBodyOnLadder())
+	{
+		strcpy(szName, "LJT");
+		bUrgent = true;
+	}
+	else if (!s_bMoving)
+	{
+		strcpy(szName, bDuck ? "LC" : "LSt");
+		bUrgent = true;
+	}
+	else
+	{
+		LTRotation r;
+		g_pLTClient->GetObjectRotation(hCamera ? hCamera : hObj, &r);
+		LTVector vU, vR, vF; g_pLTClient->GetRotationVectors(&r, &vU, &vR, &vF);
+		vF.y = 0.0f; vR.y = 0.0f;
+		if (vF.Mag() > 0.001f) vF.Norm();
+		if (vR.Mag() > 0.001f) vR.Norm();
+		const float f = v.Dot(vF), sd = v.Dot(vR);
+		// BY ANGLE, WITH A WIDE MARGIN. In the headset you move along the
+		// off-hand or at a slant, so the heading sits on a boundary between
+		// two animations for long stretches, and every change restarted the
+		// stride at frame 0: moving, the legs never left it and the body slid
+		//. The current direction is kept until the
+		// heading is more than 65 degrees from its centre - 20 past the edge.
+		const float fAng = (float)atan2(sd, f) * 57.29578f;	// 0 forward, +90 right
+		const float fCentre = (s_cDir == 'F') ? 0.0f : (s_cDir == 'R') ? 90.0f
+							: (s_cDir == 'L') ? -90.0f : 180.0f;
+		float fOff = fAng - fCentre;
+		while (fOff > 180.0f) fOff -= 360.0f;
+		while (fOff < -180.0f) fOff += 360.0f;
+		if (fabsf(fOff) > 65.0f)
+			s_cDir = (fabsf(fAng) <= 45.0f) ? 'F' : (fAng > 135.0f || fAng < -135.0f) ? 'B'
+				   : (fAng > 0.0f ? 'R' : 'L');
+		sprintf(szName, "%s%c", bDuck ? "LC" : (bRun ? "LR" : "LW"), s_cDir);
+		bLoco = true;
+	}
+	uint32 nAni = g_pLTClient->GetAnimIndex(hObj, szName);
+	if (nAni == INVALID_ANI) nAni = g_pLTClient->GetAnimIndex(hObj, "LSt");
+	if (nAni == INVALID_ANI || nAni == s_nAni) return;
+
+	// HOLD A STRIDE for a moment: between two ways of moving, not faster
+	// than every 0.3 s. Leaving the ground, landing and stopping go at once.
+	static double s_tSwitched = 0.0;
+	static bool   s_bWasLoco = false;
+	static long   s_nSwitches = 0;
+	const double tNow = g_pLTClient->GetTime();
+	// (A new world's clock may start below the last switch; that is no hold.)
+	if (bLoco && s_bWasLoco && !bUrgent && tNow >= s_tSwitched && (tNow - s_tSwitched) < 0.3) return;
+
+	// ...AND KEEP ITS PHASE. From one walk or run to another the new stride
+	// starts where the old one was, not at its first frame.
+	float fPhase = -1.0f;
+	if (bLoco && s_bWasLoco)
+	{
+		uint32 nT = 0, nLen = 0;
+		pML->GetCurAnimTime(&s_Tr, nT);
+		pML->GetCurAnimLength(&s_Tr, nLen);
+		if (nLen) fPhase = (float)(nT % nLen) / (float)nLen;
+	}
+	s_nAni = nAni;
+	pML->SetCurAnim(&s_Tr, (HMODELANIM)nAni);
+	pML->SetLooping(&s_Tr, LTTRUE);
+	pML->SetPlaying(&s_Tr, LTTRUE);
+	if (fPhase >= 0.0f)
+	{
+		uint32 nLen2 = 0;
+		pML->GetCurAnimLength(&s_Tr, nLen2);
+		if (nLen2) pML->SetCurAnimTime(&s_Tr, (uint32)(fPhase * (float)nLen2));
+	}
+	s_tSwitched = tNow; s_bWasLoco = bLoco; ++s_nSwitches;
+	static long s_nSwitchSaidAt = 0;
+	if (s_nSwitches - s_nSwitchSaidAt >= 50)
+	{
+		s_nSwitchSaidAt = s_nSwitches;
+		VRLog::Msg("VRBody: legs have changed animation %ld times", s_nSwitches);
+	}
+	static int s_nSaid = 0;
+	if (s_nSaid < 12)
+	{
+		++s_nSaid;
+		VRLog::Msg("VRBody: legs play %s (animation %u) at %.0f units/s", szName, nAni, fSpeed);
+	}
+}
+
 // ----------------------------------------------------------------------- //
 //
 //	ROUTINE:	CGameClientShell::UpdatePlayer()
@@ -20319,12 +21963,28 @@ void CGameClientShell::UpdatePlayer()
 	// make sure that the player's flags are always what we want them to be :)
 
     uint32 dwPlayerFlags = g_pLTClient->GetObjectFlags(hPlayerObj);
-	if (m_PlayerCamera.IsFirstPerson())
+	// ...EXCEPT WHEN A VR BODY IS WANTED (Show body, See yourself in mirrors).
+	// The engine does not advance the animation of a model it is not drawing:
+	// hidden, her tracker sat at animation 0, time 0, and the body stood in
+	// one pose and slid. Visible, she animates;
+	// our renderer still decides where she is drawn (see VRMODEL_F_HIDENODES
+	// and MIRRORONLY), and her attachments keep their own first-person rule.
+	const bool bVRBodyWanted = GetConsoleInt("VRShowBody", 1) != 0
+							|| GetConsoleInt("StubMirrorBody", 1) != 0;
+	if (m_PlayerCamera.IsFirstPerson() && !bVRBodyWanted)
 	{
 		if (dwPlayerFlags & FLAG_VISIBLE)
 		{
             ShowPlayer(LTFALSE);
 		}
+	}
+	else if (m_PlayerCamera.IsFirstPerson())
+	{
+		if (!(dwPlayerFlags & FLAG_VISIBLE))
+		{
+            ShowPlayer(LTTRUE);
+		}
+		VRBodyAnimate(hPlayerObj, GetMoveMgr(), m_hCamera);
 	}
 	else  // Third person
 	{
@@ -21409,6 +23069,50 @@ void CGameClientShell::DoActivate(LTBOOL bEditMode)
 					vF = vTry;
 					break;
 				}
+			}
+		}
+
+		// THE GREEN RETICLE IS A PROMISE. The game's activate reticle is drawn
+		// from the view camera, and this press is cast from the hand; in the
+		// training course's bomb room a tester saw the reticle turn green on a
+		// mock charge and no button did anything, because the hand was pointing
+		// a little off it. When the hand's ray reaches nothing usable and the
+		// reticle IS showing a usable object, the press goes where the reticle
+		// is: the same camera ray it was drawn from. A hand that points at
+		// something usable still wins. VRActivateReticle 0 turns this off.
+		CPlayerStats* pStatsR = m_InterfaceMgr.GetPlayerStats();
+		if (GetConsoleInt("VRActivateReticle", 1) && pStatsR)
+		{
+			HOBJECT hMe = g_pLTClient->GetClientObject();
+			HOBJECT hMove = m_MoveMgr.GetObject();
+			LTVector vDimsMe(0, 0, 0);
+			if (hMe) g_pLTClient->Physics()->GetObjectDims(hMe, &vDimsMe);
+			const float fHandReach = (vDimsMe.x + vDimsMe.z) / 2.0f + 100.0f;
+			IntersectQuery q; IntersectInfo ii;
+			q.m_From  = vPos;
+			q.m_To    = vPos + (vF * fHandReach);
+			q.m_Flags = INTERSECT_OBJECTS | INTERSECT_HPOLY | IGNORE_NONSOLID;
+			bool bHandUsable = false;
+			if (g_pLTClient->IntersectSegment(&q, &ii) && ii.m_hObject
+				&& ii.m_hObject != hMe && ii.m_hObject != hMove && !IsMainWorld(ii.m_hObject))
+			{
+				uint32 dwUser = 0;
+				g_pLTClient->GetObjectUserFlags(ii.m_hObject, &dwUser);
+				bHandUsable = (dwUser & USRFLG_CAN_ACTIVATE) != 0;
+			}
+			// The reticle's own ray, recorded when it was drawn - with the head
+			// in the camera. Asked again now, the camera would carry the body
+			// only and miss anything below eye level (the charges sit low).
+			LTFLOAT fAway = 0.0f;
+			LTVector vRFrom, vRDir;
+			if (!bHandUsable && pStatsR->VRReticleActivateRay(vRFrom, vRDir, fAway))
+			{
+				vPos = vRFrom;
+				vF = vRDir;
+				VEC_NORM(vF);
+				bVRRay = false;
+				VRLog::Msg("Activate: the hand ray reaches nothing usable; the reticle"
+					" shows a usable object %.0f away - pressing along the reticle's ray", fAway);
 			}
 		}
 	}

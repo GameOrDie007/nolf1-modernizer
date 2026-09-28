@@ -522,6 +522,11 @@ LTBOOL CInterfaceResMgr::InitFonts()
 	m_nFontScale   = GetConsoleInt("VRMenuFontScale", -1);
 	if (m_nFontScale < 0) m_nFontScale = (int)(m_fYRatio + 0.5f);
 	if (m_nFontScale < 1) m_nFontScale = 1;
+	// 4x IS THE CEILING THE ENGINE ALLOWS. Its bitmap font code refuses a
+	// strip wider than about 5,000 px (26 September: small 8x at 4760 loaded,
+	// medium 6x at 5100 did not), which the large and title fonts pass at 5x.
+	// So the game's screen stays at 2076 tall (ratio 4.3) and a headset's
+	// resolution is added in the renderer instead (StubRenderScale100).
 	if (m_nFontScale > 4) m_nFontScale = 4;
 
 	// Initialize the bitmap fonts if we are in english
@@ -1009,16 +1014,26 @@ LTBOOL CInterfaceResMgr::SetupFontScaled(CLTGUIFont *pFont, LTBOOL bBlend, uint3
 		{
 			char szTail[16];
 			LTStrCpy(szTail, pDot, sizeof(szTail));				// ".pcx"
-			sprintf(pDot, "_%dx%s", m_nFontScale, szTail);
-			if (SetupFont(pFont, bBlend, dwFlags))
+			// THE NEAREST SHEET THAT LOADS, NOT THE ORIGINAL. The engine's font
+			// code refuses a strip past a width it does not document: at 3264
+			// tall the 7x medium, large and title sheets (5950, 7672 and 8036
+			// wide) all failed while the 7x small (4165) loaded - and a failure
+			// used to drop straight to the 1x original, a sixth of the size.
+			// So step down a scale at a time and say which one each font got.
+			for (int nTry = m_nFontScale; nTry >= 2; --nTry)
 			{
-				if (!m_bScaledFonts)
-					VRLog::Msg("VRMenuFontScale: %dx sheets in use (screen %ux%u, ratio %.2f)",
-										m_nFontScale, m_dwScreenWidth, m_dwScreenHeight, m_fYRatio);
-				m_bScaledFonts = LTTRUE;
-				return LTTRUE;
+				LTStrCpy(g_szFontName, szOrig, sizeof(g_szFontName));
+				pDot = strrchr(g_szFontName, '.');
+				sprintf(pDot, "_%dx%s", nTry, szTail);
+				if (SetupFont(pFont, bBlend, dwFlags))
+				{
+					VRLog::Msg("VRMenuFontScale: %s at %dx (wanted %dx; screen %ux%u, ratio %.2f)",
+							   szOrig, nTry, m_nFontScale, m_dwScreenWidth, m_dwScreenHeight, m_fYRatio);
+					m_bScaledFonts = LTTRUE;
+					return LTTRUE;
+				}
 			}
-			VRLog::Msg("VRMenuFontScale: no %s - using the original", g_szFontName);
+			VRLog::Msg("VRMenuFontScale: no scaled sheet of %s loads - using the original", szOrig);
 			LTStrCpy(g_szFontName, szOrig, sizeof(g_szFontName));
 		}
 	}

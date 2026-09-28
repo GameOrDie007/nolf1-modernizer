@@ -1295,6 +1295,18 @@ void VRPrims_SetScopeLens(const LTVector& vObjective, const LTRotation& rAxis,
 	s_nScopeZoom = nZoom; s_fScopeFov = fFovDeg;
 }
 void VRPrims_ClearScopeLens() { s_bScope = false; }
+bool VRPrims_GetScopeObjective(LTVector& vObjective)
+{
+	if (!s_bScope) return false;
+	vObjective = s_vScopeObj;
+	return true;
+}
+bool VRPrims_GetScopeAxis(LTRotation& rAxis)
+{
+	if (!s_bScope) return false;
+	rAxis = s_rScopeAxis;
+	return true;
+}
 
 // Tell the renderer where the scope looks from, and put its eyepiece in the
 // effects frame as a disc that wears the scope's own picture.

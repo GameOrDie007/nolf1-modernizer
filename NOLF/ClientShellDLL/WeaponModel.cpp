@@ -3926,6 +3926,7 @@ LTBOOL CWeaponModel::GetFireInfo(LTVector & vU, LTVector & vR, LTVector & vF,
 				// weapon's space, times VRViewModelScale into the world), so
 				// the ray and the picture cannot drift apart. Only with the
 				// gun at the hand; the authored-offset model keeps the eye.
+				const LTVector vEyeOrigin = vFirePos;
 				LTVector vOrgShift(0.0f, 0.0f, 0.0f);
 				if (g_vtVRGunAtHand.GetFloat() > 0.0f)
 				{
@@ -3980,6 +3981,44 @@ LTBOOL CWeaponModel::GetFireInfo(LTVector & vU, LTVector & vR, LTVector & vF,
 						}
 					}
 					vFirePos += vOrgShift;
+				}
+
+				// A SCOPED SHOT STARTS WHERE THE SCOPE LOOKS FROM. The lens's
+				// picture is rendered from the scope's objective, placed a
+				// little ahead of the tube so it starts in open air - and the
+				// bullet started back at the hand. At a window the objective
+				// clears the frame while the hand does not: the scope showed a
+				// clear line to the target and the shot met the frame (a
+				// tester, Morocco's sniping section: the assassin on the far
+				// right could not be hit through the left window). With a lens
+				// drawn, the shot leaves from the objective along the barrel,
+				// so anything the scope shows can be hit. Only when the eye can
+				// reach the objective in the open - it is never fired from
+				// inside a wall. VRScopeFireOrigin 0 turns this off.
+				{
+					static VarTrack s_vtScopeOrg;
+					if (!s_vtScopeOrg.IsInitted()) s_vtScopeOrg.Init(g_pLTClient, "VRScopeFireOrigin", LTNULL, 1.0f);
+					LTVector vObj;
+					if (s_vtScopeOrg.GetFloat() > 0.0f && VRPrims_GetScopeObjective(vObj))
+					{
+						ClientIntersectQuery iq;
+						ClientIntersectInfo  ii;
+						memset(&iq, 0, sizeof(iq));
+						HLOCALOBJ hPl = g_pLTClient->GetClientObject();
+						HOBJECT hFilt[] = { hPl, m_hObject, LTNULL };
+						VEC_COPY(iq.m_From, vEyeOrigin);
+						VEC_COPY(iq.m_To, vObj);
+						iq.m_Flags     = INTERSECT_OBJECTS | IGNORE_NONSOLID;
+						iq.m_FilterFn  = ObjListFilterFn;
+						iq.m_pUserData = hFilt;
+						const bool bBlocked = g_pLTClient->IntersectSegment(&iq, &ii) ? true : false;
+						static int s_nSaidScopeOrg = 0;
+						if (s_nSaidScopeOrg++ % 90 == 0)
+							VRLog::Msg("VR fire: scope lens drawn - origin %s the objective (%.1f units from the hand's origin)",
+								bBlocked ? "NOT moved to (a wall between the eye and)" : "moved to",
+								(vObj - vFirePos).Mag());
+						if (!bBlocked) vFirePos = vObj;
+					}
 				}
 
 				// WHERE IT ENDED UP, on every change of hand angle. A shot

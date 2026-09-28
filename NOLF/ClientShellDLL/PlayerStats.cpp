@@ -234,6 +234,9 @@ CPlayerStats::CPlayerStats()
 	m_hInnocentCrosshair	= LTNULL;
 	m_hActivateGadgetCrosshair	= LTNULL;
 	m_bDrawingGadgetActivate	= LTFALSE;
+	m_hVRRetObj		= LTNULL;
+	m_fVRRetDist	= 0.0f;
+	m_fVRRetTime	= -1000.0f;
 
     m_hHUDHealth = LTNULL;
     m_hHealthIcon = LTNULL;
@@ -3506,6 +3509,8 @@ void CPlayerStats::DrawCrosshair(HSURFACE hScreen, int nCenterX,
 	LTFLOAT fDistAway = 100000.0f;
 
 	HOBJECT hObj = TestForActivationObject(dwUsrflgs, fDistAway);
+	m_hVRRetObj = LTNULL;
+	if (hObj) VRNoteReticle(hObj, dwUsrflgs, fDistAway);
 	if (hObj)
 	{
 		if (DrawActivateCrosshair(hObj, hScreen, nCenterX, nCenterY,
@@ -3941,6 +3946,53 @@ void CPlayerStats::DrawSurfaceCrosshair(HSURFACE hSurf, HSURFACE hScreen,
 //				the camera.
 //
 // ----------------------------------------------------------------------- //
+
+void CPlayerStats::VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistAway)
+{
+	// The decision DrawActivateCrosshair makes for the plain activate
+	// reticle: an object that is not a character, carries USRFLG_CAN_ACTIVATE
+	// and is within c_ActivationDist. Gadget targets are left out - a gadget
+	// is used by firing it, not by pressing use.
+	if (!hObj || IsMainWorld(hObj)) return;
+	uint32 dwUser = 0;
+	g_pLTClient->GetObjectUserFlags(hObj, &dwUser);
+	dwUser |= dwUsrFlags;
+	if ((dwUser & USRFLG_CHARACTER) || !(dwUser & USRFLG_CAN_ACTIVATE)) return;
+	if (IsGadgetActivatable(hObj) || fDistAway > c_ActivationDist) return;
+
+	// The camera as TestForActivationObject just read it.
+	HOBJECT hCamera = g_pGameClientShell->GetCamera();
+	if (!hCamera) return;
+	LTRotation rRot;
+	LTVector vU, vR, vF;
+	g_pLTClient->GetObjectPos(hCamera, &m_vVRRetFrom);
+	g_pLTClient->GetObjectRotation(hCamera, &rRot);
+	g_pLTClient->GetRotationVectors(&rRot, &vU, &vR, &vF);
+	m_vVRRetDir  = vF;
+	// Said when the reticle starts showing a different usable object.
+	static HOBJECT s_hSaid = LTNULL;
+	if (hObj != s_hSaid)
+	{
+		s_hSaid = hObj;
+		VRLog::Msg("Reticle: green on a usable object %.0f away, camera ray from"
+			" (%.0f %.0f %.0f) along (%+.2f %+.2f %+.2f)", fDistAway,
+			m_vVRRetFrom.x, m_vVRRetFrom.y, m_vVRRetFrom.z, vF.x, vF.y, vF.z);
+	}
+	m_hVRRetObj  = hObj;
+	m_fVRRetDist = fDistAway;
+	m_fVRRetTime = g_pLTClient->GetTime();
+}
+
+LTBOOL CPlayerStats::VRReticleActivateRay(LTVector & vFrom, LTVector & vDir, LTFLOAT & fDistAway)
+{
+	if (!m_hVRRetObj) return LTFALSE;
+	const LTFLOAT fAge = g_pLTClient->GetTime() - m_fVRRetTime;
+	if (fAge < 0.0f || fAge > 0.25f) return LTFALSE;
+	vFrom = m_vVRRetFrom;
+	vDir = m_vVRRetDir;
+	fDistAway = m_fVRRetDist;
+	return LTTRUE;
+}
 
 HOBJECT CPlayerStats::TestForActivationObject(uint32 & dwUsrFlags, LTFLOAT & fDistAway)
 {

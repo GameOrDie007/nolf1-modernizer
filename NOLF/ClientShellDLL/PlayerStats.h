@@ -140,6 +140,20 @@ protected:
 	void		DrawSurfaceCrosshair(HSURFACE hSurf, HSURFACE hScreen, int nCenterX, int nCenterY);
 
 	HOBJECT		TestForActivationObject(uint32 & dwUsrFlags, LTFLOAT & fDistAway);
+public:
+	// What the green activate reticle showed when it was last drawn, and the
+	// ray it was drawn from. Recorded at draw time because that is when the
+	// camera carries the head: at a button press it carries the body only.
+	// False when the reticle has not shown a usable object in the last
+	// quarter of a second.
+	LTBOOL		VRReticleActivateRay(LTVector & vFrom, LTVector & vDir, LTFLOAT & fDistAway);
+protected:
+	void		VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistAway);
+	HOBJECT		m_hVRRetObj;
+	LTVector	m_vVRRetFrom;
+	LTVector	m_vVRRetDir;
+	LTFLOAT		m_fVRRetDist;
+	LTFLOAT		m_fVRRetTime;
 	LTBOOL		DrawActivateCrosshair(HOBJECT hObj, HSURFACE hScreen, int nCenterX, int nCenterY, 
 		uint32 dwInitialUsrFlags, LTFLOAT fDistAway);
 

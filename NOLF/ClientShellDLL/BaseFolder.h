@@ -135,6 +135,8 @@ public:
 	// A value column wide enough for the page's longest label in the font it
 	// is drawn in: max(nGap, widest label + a margin). See the .cpp.
 	int				LabelColumn(int nGap, const int* pStringIds, int nIds, CLTGUIFont* pFont = LTNULL);
+	// The same for a page whose labels are plain text (the VR page).
+	int				LabelColumnText(int nGap, const char* const* pLabels, int nLabels, CLTGUIFont* pFont = LTNULL);
 
     inline void     SetTitleColor(HLTCOLOR titleColor)  { m_hTitleColor = titleColor; }
 

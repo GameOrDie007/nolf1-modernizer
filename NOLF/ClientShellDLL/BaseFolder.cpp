@@ -852,6 +852,30 @@ int CBaseFolder::LabelColumn(int nGap, const int* pStringIds, int nIds, CLTGUIFo
 	return nCol;
 }
 
+int CBaseFolder::LabelColumnText(int nGap, const char* const* pLabels, int nLabels, CLTGUIFont* pFont)
+{
+	if (!pFont) pFont = GetDefaultFont();
+	if (!pFont || !pLabels) return nGap;
+	int nWidest = 0;
+	for (int i = 0; i < nLabels; ++i)
+	{
+		HSTRING hStr = g_pLTClient->CreateString((char*)pLabels[i]);
+		if (!hStr) continue;
+		// See LabelColumn: a second live string, so the cache cannot hand
+		// back the width of the label measured before this one.
+		HSTRING hPrime = g_pLTClient->CreateString((char*)"|");
+		if (hPrime) pFont->GetTextExtents(hPrime);
+		const LTIntPt sz = pFont->GetTextExtents(hStr);
+		if (hPrime) g_pLTClient->FreeString(hPrime);
+		g_pLTClient->FreeString(hStr);
+		if (sz.x > nWidest) nWidest = sz.x;
+	}
+	const int nMargin = (int)(20.0f * g_pInterfaceResMgr->GetYRatio());
+	const int nCol = (nWidest + nMargin > nGap) ? nWidest + nMargin : nGap;
+	VRLog::Msg("LabelColumn: folder %d authored %d widest %d -> %d", (int)m_nFolderID, nGap, nWidest, nCol);
+	return nCol;
+}
+
 CLTGUIFont* CBaseFolder::GetDefaultFont()
 {
 	CLTGUIFont *pFont = GetLargeFont();

@@ -396,9 +396,10 @@ void CMoveMgr::UpdateControlFlags()
 // DirectInput proxy in host/dinputproxy exists because enumerating joysticks
 // hung the game before CShell.dll even ran). So the controller's commands are
 // carried alongside and merged at the point of use.
+bool VRTunerOwnsCommand(int nCmd);	// GameClientShell.cpp: the tuner's keys
 static inline bool VRCmdOn(int nCmd)
 {
-	return g_pLTClient->IsCommandOn(nCmd) || VRShared::CommandOn(nCmd);
+	return (g_pLTClient->IsCommandOn(nCmd) && !VRTunerOwnsCommand(nCmd)) || VRShared::CommandOn(nCmd);
 }
 
 void CMoveMgr::UpdateNormalControlFlags()

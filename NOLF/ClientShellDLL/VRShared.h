@@ -91,7 +91,7 @@
 // 5: the instance and node arrays are larger, so the FRAME IS A DIFFERENT
 // SIZE and a client and a renderer built either side of this must refuse
 // each other rather than read past the end of an array.
-#define VRMODELS_VERSION	6	// 6: VRModelInst::nHideMask
+#define VRMODELS_VERSION	7	// 7: VRModelInst::nShowNodes  6: VRModelInst::nHideMask
 #define VRMODEL_F_PLAYER	(1u << 0)
 #define VRMODEL_F_NOLIGHT	(1u << 1)
 // FLAG2_ADDITIVE, out of the object's SECOND flag word. The menu's mod
@@ -161,6 +161,15 @@
 // The ridden VEHICLE drawn as its HANDS only: the whole vehicle model is
 // under the rider (VRVehicleBody) and carries its own bars and dash.
 #define VRMODEL_F_HANDSONLY	(1u << 9)
+
+// THE PLAYER'S BODY IN ITS TWO ROLES. Looking down (Options > VR > Show body)
+// it is drawn in the eyes only, without its head and arms - the view weapon
+// is your hands - and HIDENODES says so: nShowNodes then lists the nodes whose
+// triangles are NOT drawn. In a mirror (See yourself in mirrors) it is drawn
+// in mirror passes only, whole, its arms bent to the controllers: MIRRORONLY.
+// With both on, the client sends the body twice, once per role.
+#define VRMODEL_F_HIDENODES	(1u << 10)
+#define VRMODEL_F_MIRRORONLY	(1u << 11)
 
 // 4096, up from 512, so persistent shell casings are not silently dropped
 // by the TRANSPORT rather than by the game's own cap. VRModelInst is 84
@@ -239,6 +248,18 @@ struct VRModelInst
 	// credits Cate in T01S01 has 'torso' and 'torso2' - and drawing all of
 	// them at once is a patchwork. 0 when nothing is hidden.
 	uint32_t	nHideMask;
+	// THE SUPPORT HAND (view weapon only): bit n = node n. When any bit is
+	// set, the view model's Hand* pieces - normally not drawn at all, see the
+	// renderer - are drawn, but only the triangles whose every vertex is
+	// weighted mostly to one of these nodes. Zero for everything else.
+	uint32_t	nShowNodes[4];
+	// ...REFLECTED in this plane (n.x n.y n.z d, world, n.p = d) when n is
+	// not zero. The client names the RIGHT hand's nodes and the gun's centre
+	// plane: the right hand grips the pistol as the game animates it, and its
+	// mirror image is a left hand wrapped round the other side of the same
+	// grip. The game's own left hand is posed away from the gun (a flat game
+	// keeps it out of frame), so it cannot be used where it stands.
+	float		fShowMirror[4];
 };
 
 struct VRModelFrame

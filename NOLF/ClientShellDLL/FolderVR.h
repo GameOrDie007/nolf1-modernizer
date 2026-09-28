@@ -55,6 +55,9 @@ protected:
 	// THE PICTURE
 	LTBOOL	m_bBigMenuText;
 	LTBOOL	m_bShowBody;
+	LTBOOL	m_bMirrorBody;		// the player's body in mirrors, next launch
+	int		m_nResolution;		// percent of the headset's size, next launch
+	LTBOOL	m_bSpectator;		// the steadied desktop view, next launch
 };
 
 #endif

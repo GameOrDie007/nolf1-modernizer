@@ -113,5 +113,10 @@ void VRPrims_SetScopeLens(const LTVector& vObjective, const LTRotation& rAxis,
 						  const LTVector& vEyepiece, const LTVector& vRight,
 						  const LTVector& vUp, float fRadius, int nZoom, float fFovDeg);
 void VRPrims_ClearScopeLens();
+// Where the scope's picture is taken from, as last published; false when the
+// weapon in hand draws no scope lens.
+bool VRPrims_GetScopeObjective(LTVector& vObjective);
+// ...and the axis the scope looks along (world), which a scoped shot follows.
+bool VRPrims_GetScopeAxis(LTRotation& rAxis);
 
 #endif // __VRPRIMS_H__
