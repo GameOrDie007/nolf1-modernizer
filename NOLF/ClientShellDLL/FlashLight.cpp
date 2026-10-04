@@ -59,8 +59,8 @@ extern VarTrack g_vtVRViewModelScale;
 // forward already IS the barrel and it needs no trim to point down the beam.
 //
 // These numbers exist so the MODEL can be moved to fit the BEAM, which is the
-// way round that matters: the beam's origin is headset-confirmed and the light
-// is not being touched. Hanging the torch back by its own lamp offset puts the
+// way round that matters: the beam's origin is right and the light is not
+// being touched. Hanging the torch back by its own lamp offset puts the
 // 'Flash' socket exactly on the point the beam leaves from.
 static const float kTorchFlashF = 8.84f;
 static const float kTorchFlashU = 1.59f;
@@ -696,8 +696,8 @@ void CFlashLightPlayer::GetLightPositions(LTVector& vStartPos, LTVector& vEndPos
 	// which is worth saying, because it was reported as a regression.
 	//
 	// Composed exactly the way CWeaponModel::GetFireInfo composes the aim ray,
-	// deliberately: that path is settled, headset-confirmed, and its comments
-	// record two reconstructions this project already paid for. The only change
+	// deliberately: that path is settled, and its comments record two
+	// reconstructions this project already paid for. The only change
 	// is Hands[0] instead of Hands[1].
 	//
 	//   * the DIRECTION is the hand's ABSOLUTE yaw/pitch expressed in the
