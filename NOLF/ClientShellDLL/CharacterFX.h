@@ -93,6 +93,7 @@ class CCharacterFX : public CSpecialFX
 
 		ModelId			GetModelId() const { return m_cs.eModelId; }
 		ModelSkeleton	GetModelSkeleton() const { return m_cs.eModelSkeleton; }
+		LTBOOL			VRIsPlayer() const { return m_cs.bIsPlayer; }	// physical play: a blow never lands on her own body
 		ModelType		GetModelType() const { return m_cs.eModelType; }
 		ModelStyle		GetModelStyle() const { return m_cs.eModelStyle; }
 

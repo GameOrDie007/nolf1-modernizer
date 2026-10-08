@@ -4342,10 +4342,17 @@ void CPlayerObj::HandleWeaponFireMessage(HMESSAGEREAD hRead)
 	// Read out the gadget info, if this is from a gadget...
 
     HOBJECT hGadgetObj = LTNULL;
+	// VR: a thrown item's speed from the player's hand, 0 when it was not
+	// thrown by hand. The client writes it on every non-gadget fire message.
+	LTFLOAT fVRThrowVelocity = 0.0f;
 
 	if (pAmmoData->eType == GADGET)
 	{
         hGadgetObj = g_pLTServer->ReadFromMessageObject(hRead);
+	}
+	else
+	{
+		fVRThrowVelocity = g_pLTServer->ReadFromMessageFloat(hRead);
 	}
 
 
@@ -4441,6 +4448,11 @@ void CPlayerObj::HandleWeaponFireMessage(HMESSAGEREAD hRead)
 	fireInfo.fPerturbR	= fPerturb;
 	fireInfo.fPerturbU	= fPerturb;
 	fireInfo.nFireTimestamp = nFireTimestamp;
+	if (fVRThrowVelocity > 0.0f)
+	{
+		fireInfo.bOverrideVelocity = LTTRUE;
+		fireInfo.fOverrideVelocity = fVRThrowVelocity;
+	}
 
 
 	// If we're in 3rd person view, use the hand held weapon fire pos.

@@ -15,6 +15,7 @@
 #include "GameClientShell.h"
 #include "VRLog.h"
 #include "VRShared.h"
+#include "VRHands.h"
 #include "VRPrims.h"
 #include "VRWeaponVar.h"
 // Defined in WeaponModel.cpp - drops the per-weapon variable cache.
@@ -64,6 +65,9 @@ extern void VRFlashOffsetsInvalidate();
 #include <SDL.h>
 #include "ConsoleMgr.h"
 #include "DetourMgr.h"
+#include "VRBinds.h"
+#include "VRWalk.h"
+#include "VRPhysical.h"
 
 extern ConsoleMgr* g_pConsoleMgr;
 
@@ -1077,6 +1081,8 @@ CGameClientShell::CGameClientShell()
     m_h3rdPersonCrosshair   = LTNULL;
     m_hVRAimMarker          = LTNULL;
     m_bVRAimMarkerOn        = LTFALSE;
+    m_vVRViewPos.Init(0.0f, 0.0f, 0.0f);
+    m_fVRViewAtMs           = -1.0;
     m_hContainerSound       = LTNULL;
 	m_eCurContainerCode		= CC_NO_CONTAINER;
 	m_nSoundFilterId		= 0;
@@ -2116,10 +2122,15 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// so the reflection's head is where yours is. 0.25: at 0.15 the collar
 	// still showed looking straight down; at 0.25 it is chest, legs and boots
 	// at 80 degrees and legs and boots at 55 (desk, M04S01, 27 September).
-	// 0 SINCE THE BODY STANDS UNDER THE HEAD (VRBodyShoulderBack below): the
-	// eyes' copy set back on top of that left the arms short of the hands.
-	// Kept as a tuner - a non-zero value still sets the eyes' copy back.
-	g_vtVRBodyBackEyes.Init(g_pLTClient, "VRBodyBackEyes", LTNULL, 0.0f);
+	// It went to 0 when the body came to stand under the head
+	// (VRBodyShoulderBack below), because the eyes' copy set back on top of
+	// that left the FIRST-PERSON ARMS short of the hands. Those arms are off
+	// since (VRBodyArms 0) and the reason went with them, while at 0 looking
+	// down showed the inside of the collar again: at -85 degrees the neck
+	// opening and the dress's hollow torso filled the view, and at 0.25 it
+	// is the dress, legs and boots (M01S02). Back to
+	// 0.25; the mirror's copy keeps its own place.
+	g_vtVRBodyBackEyes.Init(g_pLTClient, "VRBodyBackEyes", LTNULL, 0.25f);
 	// HER SHOULDERS UNDER YOUR HEAD: metres behind the eye, along the ground,
 	// the body is moved to each frame. Her animation put them anywhere from
 	// level with the eye to 20 cm behind it by level and pose, and from 20 cm
@@ -3329,6 +3340,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 
 void CGameClientShell::OnEngineTerm()
 {
+	VRShared::SetQuitting();
     UnhookWindow();
 
 	// Take the console detour out FIRST. It redirects the engine's console
@@ -3590,6 +3602,7 @@ void CGameClientShell::OnEnterWorld()
     m_bPlayerPosSet = LTFALSE;
     m_bInWorld      = LTTRUE;
 	++g_nVRWorldEntries;
+	VRPhysical::OnWorldEntered();
 #if VR_DEBUG_TOOLS
 	g_bVRCineEnded = false;
 #endif
@@ -4666,7 +4679,8 @@ void CGameClientShell::VRPublishModels()
 	// widened to 4096, and the M05S01 docks (34 rain volumes of splash sprites)
 	// return ~1120 objects: the gun was never appended, so it was not drawn and
 	// its flash, tracer and casings sat at a stale place.
-	if (g_vtVRViewModel.GetFloat() > 0.0f && nOut < 4096 && !bMainMenu)
+	// Sunglasses that are ON are on the face, not in the hand: not drawn.
+	if (g_vtVRViewModel.GetFloat() > 0.0f && nOut < 4096 && !bMainMenu && !VRPhysical::GlassesWorn())
 	{
 		HLOCALOBJ hVW = m_weaponModel.GetHandle();
 		if (hVW)
@@ -5598,7 +5612,7 @@ void CGameClientShell::VRPublishModels()
 		mi.nShowNodes[0] = mi.nShowNodes[1] = mi.nShowNodes[2] = mi.nShowNodes[3] = 0;
 		mi.fShowMirror[0] = mi.fShowMirror[1] = mi.fShowMirror[2] = mi.fShowMirror[3] = 0.0f;
 		LTVector vSupU, vSupR, vSupF, vSupP;
-		if (i == nViewWeapon && s_bVRSupport && !bArmsFP
+		if (i == nViewWeapon && s_bVRSupport && !bArmsFP && !VRHands_On()	// Cate's own hands draw the off hand
 			&& m_weaponModel.GetFireInfo(vSupU, vSupR, vSupF, vSupP) && vSupR.Mag() > 0.01f)
 		{
 			// THE MIRROR'S NORMAL is the gun hand's right; the renderer puts the
@@ -7258,6 +7272,113 @@ void CGameClientShell::VRPublishModels()
 		const bool bSwapArms = VRShared::SwapHands();
 		const int  sdGun = bSwapArms ? 1 : 0;
 
+		// THE BODY TURNS WITH THE WALK DIRECTION, only when Walk direction is
+		// Head or Off hand (VRWalk.h). There the player turns with their own
+		// body (on an omnidirectional treadmill, always), and a drawn body left
+		// facing the game's body yaw points somewhere else when they look down.
+		// Body mode is unchanged.
+		//
+		// How a VR body usually follows: while walking it swings round to face
+		// the way they walk, over about a tenth of a second; standing, the head
+		// may look up to 45 degrees either side before the body is dragged
+		// round with it, as a neck allows. Held, not reset, through menus and
+		// cutscenes, so pausing does not spin her.
+		//
+		// The whole skeleton turns about the vertical line through the eye,
+		// and whatever hangs from her hands with it; the shoulder placement
+		// below then uses the turned facing. VRBodyFollowsWalk 0 turns it off.
+		LTVector vBodyFace(vCamF.x, 0.0f, vCamF.z);
+		{
+			static float s_fTurn = 0.0f;		// radians the drawn body is turned from the game's body
+			static int   s_nSaid = 0;
+			const bool bOn = VRWalk::Mode() != 0 && GetConsoleFloat("VRBodyFollowsWalk", 1.0f) > 0.0f;
+			if (!bOn) s_fTurn = 0.0f;
+			else if (VRWalk::Live())
+			{
+				const float kPi = 3.14159265f;
+				float d = VRWalk::YawOffset() - s_fTurn;
+				while (d >  kPi) d -= 2.0f * kPi;
+				while (d < -kPi) d += 2.0f * kPi;
+				float dt = g_pLTClient->GetFrameTime();
+				if (dt < 0.0f) dt = 0.0f;
+				if (dt > 0.1f) dt = 0.1f;
+				if (VRWalk::Moving())
+					s_fTurn += d * (1.0f - (float)exp(-dt / 0.1f));
+				else
+				{
+					const float kLim = 45.0f * 0.01745329f;
+					if (d >  kLim) s_fTurn += d - kLim;
+					if (d < -kLim) s_fTurn += d + kLim;
+				}
+				while (s_fTurn >  kPi) s_fTurn -= 2.0f * kPi;
+				while (s_fTurn < -kPi) s_fTurn += 2.0f * kPi;
+			}
+			if (s_fTurn != 0.0f && vBodyFace.Mag() > 0.001f && m_hCamera)
+			{
+				// The turned facing, by the same EulerRotateY the walk and the
+				// view use, so all three agree on which way is which.
+				LTRotation rT;
+				g_pLTClient->GetObjectRotation(m_hCamera, &rT);
+				g_pLTClient->EulerRotateY(&rT, s_fTurn);
+				LTVector tu, tr, tf;
+				g_pLTClient->GetRotationVectors(&rT, &tu, &tr, &tf);
+				LTVector f0 = vBodyFace; f0.Norm();
+				LTVector f1(tf.x, 0.0f, tf.z);
+				if (f1.Mag() > 0.001f)
+				{
+					f1.Norm();
+					// The rotation about world up that takes f0 to f1:
+					// x' = c x + s z, z' = -s x + c z.
+					const float c = f0.x * f1.x + f0.z * f1.z;
+					const float s = f1.x * f0.z - f1.z * f0.x;
+					const float px = vEye.x, pz = vEye.z;
+					auto TurnNodes = [&](VRModelInst& inst)
+					{
+						for (uint32 z = 0; z < inst.nNodeCount; ++z)
+						{
+							float* m = s_frame.nodes[inst.nNodeFirst + z].m;
+							for (int col = 0; col < 3; ++col)
+							{
+								const float a = m[0 + col], b = m[8 + col];
+								m[0 + col] = c * a + s * b;
+								m[8 + col] = -s * a + c * b;
+							}
+							const float tx = m[3] - px, tz = m[11] - pz;
+							m[3]  = c * tx + s * tz + px;
+							m[11] = -s * tx + c * tz + pz;
+						}
+						const float ix = inst.fPos[0] - px, iz = inst.fPos[2] - pz;
+						inst.fPos[0] = c * ix + s * iz + px;
+						inst.fPos[2] = -s * ix + c * iz + pz;
+						// Its own rotation too (read only for non-uniform scale):
+						// the Y turn by the same angle, applied in world space.
+						if (inst.fRot[0] != 0.0f || inst.fRot[1] != 0.0f || inst.fRot[2] != 0.0f || inst.fRot[3] != 0.0f)
+						{
+							const float h = 0.5f * (float)atan2(s, c);
+							const float ry = (float)sin(h), rw = (float)cos(h);
+							const float x = inst.fRot[0], y = inst.fRot[1], zq = inst.fRot[2], w = inst.fRot[3];
+							inst.fRot[0] = rw * x + ry * zq;
+							inst.fRot[1] = rw * y + ry * w;
+							inst.fRot[2] = rw * zq - ry * x;
+							inst.fRot[3] = rw * w - ry * y;
+						}
+					};
+					TurnNodes(mi);
+					for (uint32 k = 0; k < nHHCount; ++k)
+					{
+						if (nHHIdx[k] >= s_frame.nCount || s_frame.inst[nHHIdx[k]].nObject != nHHObj[k]) continue;
+						TurnNodes(s_frame.inst[nHHIdx[k]]);
+					}
+					vBodyFace = f1;
+					if (s_nSaid < 3 && fabs(s_fTurn) > 0.2f)
+					{
+						++s_nSaid;
+						VRLog::Msg("VRBody: turned %.0f deg to follow the walk direction", s_fTurn * 57.29578f);
+					}
+				}
+			}
+		}
+
 		// THE BODY UNDER THE HEAD. The whole skeleton - and the gun hanging
 		// from her hand - moves along the ground so her shoulders are
 		// VRBodyShoulderBack behind the eye, the way a person's are. Before
@@ -7270,7 +7391,8 @@ void CGameClientShell::VRPublishModels()
 			const VRModelNode& sR = s_frame.nodes[nArmIdx[0][0]];
 			const VRModelNode& sL = s_frame.nodes[nArmIdx[1][0]];
 			const LTVector vMid((sR.m[3] + sL.m[3]) * 0.5f, 0.0f, (sR.m[11] + sL.m[11]) * 0.5f);
-			LTVector vFlat(vCamF.x, 0.0f, vCamF.z);
+			// The body's facing, turned, when it follows the walk (above).
+			LTVector vFlat = vBodyFace;
 			if (vFlat.Mag() > 0.001f)
 			{
 				vFlat.Norm();
@@ -7300,8 +7422,16 @@ void CGameClientShell::VRPublishModels()
 				}
 			}
 			if ((m_nVRModelFrame % 450) == 0)
+			{
 				VRLog::Msg("VRBody: moved %.1f units along the ground to put her shoulders %.2f m behind the eye",
 					vBodyShift.Mag(), g_vtVRBodyShoulderBack.GetFloat());
+				// HEIGHTS, for the mirror: her shoulders and feet against the
+				// eye, in metres. A person's shoulders are about 0.22 m below
+				// their eyes.
+				const float fShY = (sR.m[7] + sL.m[7]) * 0.5f;
+				VRLog::Msg("VRBody: shoulders %.2f m below the eye, feet %.2f m below it",
+					(vEye.y - fShY) / 58.75f, (vEye.y - mi.fPos[1]) / 58.75f);
+			}
 		}
 		// The game hangs her gun from the model's RIGHT hand whichever hand
 		// holds it, so the mirror's gun is found by the right hand's ANIMATED
@@ -7697,6 +7827,11 @@ void CGameClientShell::VRPublishModels()
 				}
 			}
 		}
+		// ELBOW FLIPS, whatever the first-person arms: the mirror's arms bend
+		// here too, and an elbow that snaps to the other side of the arm is the
+		// most visible IK fault there is. Running totals, every 450 frames.
+		if (bPlayerArm && (m_nVRModelFrame % 450) == 0)
+			VRLog::Msg("VRArm: elbow flips so far right %ld left %ld", s_nElbowFlips[0], s_nElbowFlips[1]);
 
 		// THE BODY'S ROLES (see VRMODEL_F_HIDENODES / MIRRORONLY). The two
 		// options are renderer switches the launcher passes on; the same names
@@ -7734,11 +7869,39 @@ void CGameClientShell::VRPublishModels()
 
 			// The eyes' body, moved further back along the ground on its OWN
 			// copy of the skeleton (the mirror's copy keeps the original).
-			const float fEyesBack = g_vtVRBodyBackEyes.GetFloat() * 58.75f;
+			// ONLY AS FAR BACK AS THE LOOK DOWN NEEDS. A fixed 0.25 m put her
+			// body behind the player, who had to lean forward to see it. A
+			// fixed 0 showed the inside of the collar when looking steeply
+			// down. So the body
+			// stands under the head, where it was in 1.1, and slides back only
+			// as the head pitches past VRBodyBackEyesFrom degrees down, the
+			// whole VRBodyBackEyes by VRBodyBackEyesTo. The pitch is the
+			// head's own forward vector, the one the view is built from.
+			float fBackT = 0.0f;
+			{
+				const VRSharedState& hs = VRShared::State();
+				LTRotation rH;
+				rH.Init(-hs.fHeadQuatX, -hs.fHeadQuatY, hs.fHeadQuatZ, hs.fHeadQuatW);
+				LTVector hu, hr, hf;
+				g_pLTClient->GetRotationVectors(&rH, &hu, &hr, &hf);
+				float fDown = (hf.y < 1.0f && hf.y > -1.0f) ? (float)asin(-hf.y) * 57.29578f : 0.0f;
+				const float a = GetConsoleFloat("VRBodyBackEyesFrom", 45.0f);
+				const float b = GetConsoleFloat("VRBodyBackEyesTo", 80.0f);
+				if (b > a) fBackT = (fDown - a) / (b - a);
+				if (fBackT < 0.0f) fBackT = 0.0f;
+				if (fBackT > 1.0f) fBackT = 1.0f;
+				fBackT = fBackT * fBackT * (3.0f - 2.0f * fBackT);	// eased at both ends
+				if ((m_nVRModelFrame % 450) == 0)
+					VRLog::Msg("VRBody: head %.0f deg down, eyes' body set back %.2f m", fDown,
+						g_vtVRBodyBackEyes.GetFloat() * fBackT);
+			}
+			const float fEyesBack = g_vtVRBodyBackEyes.GetFloat() * fBackT * 58.75f;
 			if (bFP && fEyesBack != 0.0f
 				&& s_frame.nNodeCount + mi.nNodeCount <= VRMODELS_MAX_NODES)
 			{
-				LTVector vFlatE(vCamF.x, 0.0f, vCamF.z);
+				// Along the body's facing, TURNED, when it follows the walk
+				// direction, so the set-back is always straight behind her.
+				LTVector vFlatE(vBodyFace.x, 0.0f, vBodyFace.z);
 				if (vFlatE.Mag() < 0.001f) vFlatE = vCamU * (vCamF.y < 0.0f ? 1.0f : -1.0f);
 				vFlatE.y = 0.0f; vFlatE.Norm();
 				const LTVector vOffE = vFlatE * -fEyesBack;
@@ -7931,6 +8094,21 @@ void CGameClientShell::VRPublishModels()
 					w.nObject, (float)sqrt(fBestD2));
 			}
 		}
+	}
+
+	// GAME OR DIE HANDS: Cate's own hands, fitted to this frame's gun (VRHands.cpp). Not in menus
+	// or cards, and not on a vehicle, its view model's hands already hold the bars.
+	{
+		const float K = (g_vtVRViewModelScale.GetFloat() > 0.1f) ? g_vtVRViewModelScale.GetFloat() : 17.0f;
+		const float U = (g_vtVRHandPosScale.GetFloat() > 0.0f) ? g_vtVRHandPosScale.GetFloat() : 3.0f;
+		const bool bRidingNow = m_MoveMgr.GetVehicleMgr() && m_MoveMgr.GetVehicleMgr()->IsVehiclePhysics();
+		// ...nor in a cutscene, a conversation or a dialogue window, nor when
+		// dead: only while the player is playing, in their own first-person
+		// view (the headset showed them floating through cutscenes and talks).
+		const bool bPlayingFP = m_InterfaceMgr.GetGameState() == GS_PLAYING
+			&& IsFirstPerson() && !IsUsingExternalCamera() && !IsPlayerDead();
+		VRHands_Publish(s_frame, nViewInst, (nViewWeapon < nOut) ? objs[nViewWeapon] : LTNULL,
+						vEye, vCamR, vCamU, vCamF, K * U, !bFolder && !bMainMenu && !bRidingNow && bPlayingFP);
 	}
 
 	s_pfn(&s_frame);
@@ -9217,6 +9395,13 @@ void CGameClientShell::VRUpdateControllerInput()
 	const VRHandState&   L = s.Hands[0];
 	const VRHandState&   R = s.Hands[1];
 
+	// THE BUTTON MAP (VRBinds, Options > VR > Controls), read before any
+	// early return so its press and release edges stay true across them.
+	// The right stick is not a button while the weapon wheel has it or a menu
+	// is up (it moves the selection there).
+	VRBinds::Update(m_InterfaceMgr.GetVRWheel().IsOpen()
+		|| m_InterfaceMgr.GetGameState() != GS_PLAYING);
+
 	if (!L.nActive && !R.nActive) { Local::ReleaseAll(this); return; }
 
 	// Button edges are tracked whatever the game state, so that a button held
@@ -9257,9 +9442,23 @@ void CGameClientShell::VRUpdateControllerInput()
 		&& m_MoveMgr.GetVehicleMgr()->IsVehiclePhysics();
 	const bool bThrottle = bRiding && (R.fTrigger > 0.5f || (R.nButtons & VRBTN_TRIGGER));
 	const bool bBrake    = bRiding && (L.fTrigger > 0.5f || (L.nButtons & VRBTN_TRIGGER));
+	// WHILE RIDING THE LEFT TRIGGER IS THE BRAKE, so whatever the player put
+	// on it (the flashlight, by default) waits until they are off the bike.
+	auto BindBlocked = [&](int nAct) -> bool
+	{
+		return bRiding && VRBinds::PadOf(nAct) == VRBinds::PAD_LTRIGGER;
+	};
+	auto BindHeld    = [&](int nAct) -> bool { return VRBinds::Held(nAct)    && !BindBlocked(nAct); };
+	auto BindPressed = [&](int nAct) -> bool { return VRBinds::Pressed(nAct) && !BindBlocked(nAct); };
 
 	if (m_InterfaceMgr.GetGameState() == GS_PLAYING)
 	{
+		// PHYSICAL PLAY (VR Options > Physical Play): holsters, the clip by
+		// hand, blows by swinging. First, so a grip that closes on a holster
+		// or a clip is known to be taken before run, the scope's zoom and the
+		// support hand read it below.
+		VRPhysical::Update(this, bRiding);
+
 		// Left stick moves, right stick turns - what every VR game does, so it
 		// needs no explaining to someone wearing a headset.
 		// ON A VEHICLE THE STICK ONLY STEERS: forward and back are the
@@ -9321,6 +9520,7 @@ void CGameClientShell::VRUpdateControllerInput()
 			const bool bWas = s_bVRSupport;
 			bool bOn = false;
 			if (!bTuning && !bRiding && GetConsoleInt("VRSupportHand", 1) > 0
+				&& !VRPhysical::GripTaken(0)
 				&& L.nActive && R.nActive && (L.nButtons & VRBTN_GRIP)
 				&& VRSupportWeaponOut(m_weaponModel))
 			{
@@ -9337,9 +9537,11 @@ void CGameClientShell::VRUpdateControllerInput()
 				VRLog::Msg("VRSupportHand: %s", bOn ? "on - the off hand is on the pistol" : "off");
 			}
 		}
-		Local::Set(this,  6, !bTuning && !s_bVRSupport && (L.nButtons & VRBTN_GRIP) != 0);	// RUN
-		Local::Set(this,  7, (R.nButtons & VRBTN_SECONDARY) != 0);	// DUCK     B
-		Local::Set(this,  8, (R.nButtons & VRBTN_PRIMARY)   != 0);	// JUMP     A
+		// ...nor while the grip holds a clip from the ammo pouch (physical play).
+		Local::Set(this,  6, !bTuning && !s_bVRSupport && !VRPhysical::GripTaken(0)
+			&& (L.nButtons & VRBTN_GRIP) != 0);	// RUN
+		Local::Set(this,  7, BindHeld(VRBinds::ACT_DUCK));	// DUCK     B by default
+		Local::Set(this,  8, BindHeld(VRBinds::ACT_JUMP));	// JUMP     A by default
 		bool bVRFireNow = !bRiding && (R.nButtons & VRBTN_TRIGGER) != 0;	// the throttle while riding
 #if VR_DEBUG_TOOLS
 		if (VRDebugFireWants())
@@ -9354,11 +9556,44 @@ void CGameClientShell::VRUpdateControllerInput()
 			}
 		}
 #endif	// VR_DEBUG_TOOLS
+		// The sunglasses only take a photo while they are at the eyes.
+		if (bVRFireNow && VRPhysical::GlassesBlockFire(&m_weaponModel)) bVRFireNow = false;
+		// The coin and the lipsticks: the trigger readies, letting go throws.
+		{
+			bool bThrowFire = false;
+			if (VRPhysical::ThrowTrigger(&m_weaponModel, bVRFireNow, &bThrowFire)) bVRFireNow = bThrowFire;
+		}
 		Local::Set(this,  9, bVRFireNow);	// FIRING
 
 		// Edge-triggered: handled in OnCommandOn's switch, not polled.
-		if (nWentL & VRBTN_PRIMARY)   OnCommandOn(COMMAND_ID_ACTIVATE);	// X
-		if (nWentL & VRBTN_SECONDARY) OnCommandOn(COMMAND_ID_RELOAD);	// Y
+		if (BindPressed(VRBinds::ACT_USE))    OnCommandOn(COMMAND_ID_ACTIVATE);	// X by default
+		if (BindPressed(VRBinds::ACT_RELOAD)) OnCommandOn(COMMAND_ID_RELOAD);	// Y by default
+
+		// THE REST OF THE MAPPABLE ACTIONS (Options > VR > Controls). On and
+		// off both: holster acts on release, and the weapon and ammo choosers
+		// time a held key, a press opens the chooser and steps, holding keeps
+		// stepping, the trigger takes it. Quest has none of these bound by
+		// default; the Frame has them on its D-pad and right shoulder.
+		{
+			struct ActCmd { int act; int cmd; };
+			static const ActCmd kActs[] = {
+				{ VRBinds::ACT_PREVWEAPON, COMMAND_ID_PREV_WEAPON },
+				{ VRBinds::ACT_NEXTWEAPON, COMMAND_ID_NEXT_WEAPON },
+				{ VRBinds::ACT_NEXTAMMO,   COMMAND_ID_NEXT_AMMO   },
+				{ VRBinds::ACT_HOLSTER,    COMMAND_ID_HOLSTER     },
+				{ VRBinds::ACT_QUICKSAVE,  COMMAND_ID_QUICKSAVE   },
+			};
+			for (const ActCmd& ac : kActs)
+			{
+				if (bTuning) break;
+				if (BindPressed(ac.act))
+				{
+					OnCommandOn(ac.cmd);
+					VRLog::Msg("VRBinds: %s -> command %d", VRBinds::ActLabel(ac.act), ac.cmd);
+				}
+				if (VRBinds::Released(ac.act)) OnCommandOff(ac.cmd);
+			}
+		}
 
 		// THE CONTROLS THAT WERE MISSING. no additional
 		// regular game controls such as weapon changes, weapon wheel or
@@ -9378,7 +9613,7 @@ void CGameClientShell::VRUpdateControllerInput()
 			// but that chord is Virtual Desktop's own overlay too. Recenter is
 			// the row at the top of Options > VR, or holding the headset's Meta
 			// button (the runtime's own recenter, which the host handles).
-			if (nWentR & VRBTN_THUMBCLICK)
+			if (BindPressed(VRBinds::ACT_WHEEL))	// right stick click by default
 			{
 				if (wheel.IsOpen()) wheel.Close(LTTRUE);
 				else if (IsPlayerInWorld() && !IsPlayerDead()) wheel.Open();
@@ -9422,7 +9657,9 @@ void CGameClientShell::VRUpdateControllerInput()
 		// past the top drops back to the first. The lens shows a magnified
 		// picture at every level; the eyes never zoom. Nothing happens on a
 		// gun without a scope, which is what keeps the grip free elsewhere.
-		if ((nWentR & VRBTN_GRIP) && !bTuning && !(R.nButtons & VRBTN_SECONDARY))
+		// A grip that closed on a holster is a draw, not a zoom.
+		if ((nWentR & VRBTN_GRIP) && !bTuning && !(R.nButtons & VRBTN_SECONDARY)
+			&& !VRPhysical::GripTaken(1))
 		{
 			CPlayerStats* pStatsZ = m_InterfaceMgr.GetPlayerStats();
 			const uint8 nScopeZ = pStatsZ ? pStatsZ->GetScope() : WMGR_INVALID_ID;
@@ -9439,7 +9676,7 @@ void CGameClientShell::VRUpdateControllerInput()
 				VRLog::Msg("VRScope: right grip - zoom level now %d of %d", m_nZoomView, pModZ->nZoomLevel);
 			}
 		}
-		if ((nWentL & VRBTN_TRIGGER) && !bRiding) OnCommandOn(COMMAND_ID_FLASHLIGHT);	// L trigger (throttle while riding)
+		if (BindPressed(VRBinds::ACT_FLASHLIGHT)) OnCommandOn(COMMAND_ID_FLASHLIGHT);	// L trigger by default (the brake while riding)
 
 		// THE MENU, and there was no way to reach it from a headset at all.
 		//
@@ -9470,6 +9707,7 @@ void CGameClientShell::VRUpdateControllerInput()
 	// Nothing may stay held across the boundary, or the player is still walking
 	// when the menu closes.
 	Local::ReleaseAll(this);
+	VRPhysical::Idle();
 
 	static int s_nSaidMenu = 0;
 	if (s_nSaidMenu++ == 0)
@@ -9501,11 +9739,37 @@ void CGameClientShell::VRUpdateControllerInput()
 	// Menus are driven by KEYS, not commands: CInterfaceMgr::OnCommandOn
 	// handles only ACTIVATE, INVENTORY, CROSSHAIRTOGGLE and FRAGCOUNT, so
 	// navigation has to arrive as VK_ codes through OnKeyDown.
+	//
+	// THE STRONGER AXIS WINS, on whichever stick is pushed further. Up/down
+	// used to be tested first, so a push meant as left or right that drifted
+	// a little past the dead zone vertically moved the selection instead,
+	// and a push meant as up/down that drifted
+	// sideways was never at risk. Left and right change values, so that was
+	// the direction that must not be misread.
+	const float fLM = fabsf(L.fStickX) > fabsf(L.fStickY) ? fabsf(L.fStickX) : fabsf(L.fStickY);
+	const float fRM = fabsf(R.fStickX) > fabsf(R.fStickY) ? fabsf(R.fStickX) : fabsf(R.fStickY);
+	const float fSX = (fRM > fLM) ? R.fStickX : L.fStickX;
+	const float fSY = (fRM > fLM) ? R.fStickY : L.fStickY;
 	int nKey = 0;
-	if      (L.fStickY >  dz || R.fStickY >  dz) nKey = VK_UP;
-	else if (L.fStickY < -dz || R.fStickY < -dz) nKey = VK_DOWN;
-	else if (L.fStickX < -dz || R.fStickX < -dz) nKey = VK_LEFT;
-	else if (L.fStickX >  dz || R.fStickX >  dz) nKey = VK_RIGHT;
+	if (fabsf(fSY) >= fabsf(fSX))
+	{
+		if      (fSY >  dz) nKey = VK_UP;
+		else if (fSY < -dz) nKey = VK_DOWN;
+	}
+	else
+	{
+		if      (fSX < -dz) nKey = VK_LEFT;
+		else if (fSX >  dz) nKey = VK_RIGHT;
+	}
+	// The Steam Frame's D-pad moves through a menu the way a pad's does.
+	if (nKey == 0)
+	{
+		const uint32_t nPad = VRShared::FramePadButtons();
+		if      (nPad & VRBTN_DPAD_UP)    nKey = VK_UP;
+		else if (nPad & VRBTN_DPAD_DOWN)  nKey = VK_DOWN;
+		else if (nPad & VRBTN_DPAD_LEFT)  nKey = VK_LEFT;
+		else if (nPad & VRBTN_DPAD_RIGHT) nKey = VK_RIGHT;
+	}
 
 	static int    s_nLastKey  = 0;
 	static double s_fRepeatAt = 0.0;
@@ -9540,6 +9804,18 @@ void CGameClientShell::VRUpdateControllerInput()
 	//
 	// Either hand: X and A both mean select in a menu, where there is no
 	// left/right convention to respect.
+	// A PICKED-UP DOCUMENT (the intelligence items, GS_POPUP) closes on the
+	// game's USE command, not on a key: CPopupText::OnKeyDown takes Escape
+	// only, so X, Use in play, sent Return and did nothing, and a player
+	// found that Y (Escape here) was the button that closed it. X, A and the
+	// trigger now send Use, as the use key does in the flat game.
+	if ((nWent & (VRBTN_PRIMARY | VRBTN_TRIGGER))
+		&& m_InterfaceMgr.GetGameState() == GS_POPUP)
+	{
+		VRLog::Msg("VRControls: document on screen - Use sent to close it");
+		m_InterfaceMgr.OnCommandOn(COMMAND_ID_ACTIVATE);
+		return;
+	}
 	if (nWent & (VRBTN_PRIMARY | VRBTN_TRIGGER))
 	{
 		VRLog::Msg("VRControls: menu RETURN sent, game state %d",
@@ -9593,11 +9869,39 @@ void CGameClientShell::Update()
 	{
 		static VarTrack s_vtOpenVR;
 		if (!s_vtOpenVR.IsInitted()) s_vtOpenVR.Init(g_pLTClient, "VRDebugOpenVRPage", LTNULL, 0.0f);
-		if (s_vtOpenVR.GetFloat() > 0.0f && m_InterfaceMgr.GetGameState() == GS_FOLDER)
+		// 2: A TOUR, every VR Options page and then Display, six seconds
+		// each, each one logged as it opens so tools\options-tour.ps1 can
+		// photograph it. One launch checks every row of every page fits.
+		static int    s_nTour = -1;
+		static double s_fTourNext = 0.0;
+		if (s_vtOpenVR.GetFloat() > 0.0f && m_InterfaceMgr.GetGameState() == GS_FOLDER && s_nTour < 0)
 		{
+			if (s_vtOpenVR.GetFloat() >= 2.0f) { s_nTour = 0; s_fTourNext = 0.0; }
+			else
+			{
+				m_InterfaceMgr.SwitchToFolder(FOLDER_ID_VR);
+				VRLog::Msg("VRDebugOpenVRPage: switched to Options > VR");
+			}
 			s_vtOpenVR.SetFloat(0.0f);
-			m_InterfaceMgr.SwitchToFolder(FOLDER_ID_VR);
-			VRLog::Msg("VRDebugOpenVRPage: switched to Options > VR");
+		}
+		if (s_nTour >= 0 && VRLog::NowMs() >= s_fTourNext)
+		{
+			static const eFolderID kTour[] = { FOLDER_ID_VR, FOLDER_ID_VR_MOVE, FOLDER_ID_VR_BODY,
+				FOLDER_ID_VR_HANDS, FOLDER_ID_VR_PHYSICAL, FOLDER_ID_VR_SCREEN, FOLDER_ID_VR_CONTROLS, FOLDER_ID_OPTIONS, FOLDER_ID_GAME, FOLDER_ID_DISPLAY,
+				FOLDER_ID_ESCAPE };
+			const int nTour = sizeof(kTour) / sizeof(kTour[0]);
+			if (s_nTour < nTour)
+			{
+				m_InterfaceMgr.SwitchToFolder(kTour[s_nTour]);
+				VRLog::Msg("VRDebugOpenVRPage: tour page %d of %d (folder %d)", s_nTour + 1, nTour, (int)kTour[s_nTour]);
+				++s_nTour;
+				s_fTourNext = VRLog::NowMs() + 6000.0;
+			}
+			else
+			{
+				VRLog::Msg("VRDebugOpenVRPage: tour done");
+				s_nTour = -2;
+			}
 		}
 	}
 #endif
@@ -10033,6 +10337,16 @@ void CGameClientShell::Update()
 				g_pPhysicsLT->MoveObject(hMe, &vTo, MOVEOBJECT_TELEPORT);
 				g_pPhysicsLT->SetObjectDims(hMe, &vCur, SETDIMS_PUSHOBJECTS);
 				g_pLTClient->GetObjectPos(hMe, &vGot);
+				// AND FACE A WAY, when asked (VRTeleYaw, degrees; unset keeps
+				// the save's): a desk swing has to know where the person in
+				// front of it stands.
+				const float fTeleYaw = GetConsoleFloat("VRTeleYaw", -999.0f);
+				if (fTeleYaw > -900.0f)
+				{
+					SetYaw(DEG2RAD(fTeleYaw));
+					SetPlayerYaw(DEG2RAD(fTeleYaw));
+					VRLog::Msg("VRTele: facing yaw %.0f", fTeleYaw);
+				}
 				VRLog::Msg("VRTele: asked for (%.0f %.0f %.0f), landed at"
 						   " (%.0f %.0f %.0f)%s",
 						   vTo.x, vTo.y, vTo.z, vGot.x, vGot.y, vGot.z,
@@ -11988,7 +12302,12 @@ void CGameClientShell::UpdateCameraPosition()
 		const LTVector vBob = vPos - vP0;
 
 		vPos.y	+= m_fCamDuck;
-		vPos	+= m_CameraOffsetMgr.GetPosDelta();
+		// The game's only positional camera offset is the landing dip
+		// (CamLandMoveDist, -30 units: half a metre). In a headset that drops
+		// the eyes into the shoulders of the body drawn under them and moves
+		// the view on its own, so it stays out unless VRLandDip is set.
+		if (!VRShared::IsLive() || GetConsoleInt("VRLandDip", 0) > 0)
+			vPos	+= m_CameraOffsetMgr.GetPosDelta();
 		{
 			static uint32 s_nSaidCam = 0;
 			if ((++s_nSaidCam % 45) == 1)
@@ -13733,6 +14052,16 @@ LTBOOL CGameClientShell::VRPersistentFX() const
 	return (g_vtVRPersistentFX.GetFloat() > 0.0f) ? LTTRUE : LTFALSE;
 }
 
+LTBOOL CGameClientShell::VRGetViewRay(LTVector & vPos, LTRotation & rRot) const
+{
+	if (m_fVRViewAtMs < 0.0 || !VRShared::IsLive()) return LTFALSE;
+	const double fAge = VRLog::NowMs() - m_fVRViewAtMs;
+	if (fAge < 0.0 || fAge > 250.0) return LTFALSE;
+	vPos = m_vVRViewPos;
+	rRot = m_rVRViewRot;
+	return LTTRUE;
+}
+
 LTBOOL CGameClientShell::VRHidesGameCrosshair() const
 {
 	if (g_vtVRHideCrosshair.GetFloat() <= 0.0f) return LTFALSE;
@@ -14583,6 +14912,9 @@ void CGameClientShell::OnCommandOn(int command)
 
 		case COMMAND_ID_RELOAD :
 		{
+			// MANUAL RELOAD (physical play): the button ejects the clip and the
+			// off hand puts the next one in. Off, the game's reload as always.
+			if (VRPhysical::OnReloadCommand(&m_weaponModel)) break;
 			m_weaponModel.ReloadClip();
 		}
 		break;
@@ -21169,6 +21501,15 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 
 		g_pLTClient->SetObjectRotation(m_hCamera, &rViewRot);
 
+		// Kept for the activate reticle (VRGetViewRay): the view the player is
+		// shown, which the camera object stops carrying once this render ends.
+		if (!bHeadAsMouse)
+		{
+			m_vVRViewPos  = vSavedPos;
+			m_rVRViewRot  = rViewRot;
+			m_fVRViewAtMs = VRLog::NowMs();
+		}
+
 		// THE REAL HEAD POSE, four times a second, with what the camera did
 		// with it.
 		//
@@ -21858,10 +22199,19 @@ static void VRBodyAnimate(HLOCALOBJ hObj, CMoveMgr* pMove, HOBJECT hCamera)
 
 	char szName[8] = "LSt";
 	bool bLoco = false, bUrgent = false;
-	if (!pMove->IsOnGround() && !pMove->IsBodyOnLadder())
+	// NO JUMP POSE IN THE AIR (VRBodyJumpPose 1 brings it back). The game's
+	// jump animation draws the knees up to the chest, right under the eyes:
+	// in the headset every jump put her legs into the view. In the air the
+	// legs stand (or crouch, if ducking).
+	if (!pMove->IsOnGround() && !pMove->IsBodyOnLadder() && GetConsoleInt("VRBodyJumpPose", 0) > 0)
 	{
 		strcpy(szName, "LJT");
 		bUrgent = true;
+	}
+	else if (!pMove->IsOnGround() && !pMove->IsBodyOnLadder())
+	{
+		strcpy(szName, bDuck ? "LC" : "LSt");
+		bUrgent = false;
 	}
 	else if (!s_bMoving)
 	{
@@ -23006,6 +23356,68 @@ void CGameClientShell::DoActivate(LTBOOL bEditMode)
 
 	if (bVRRay)
 	{
+		// WHAT THE PLAYER CAN SEE DECIDES. Two marks can say "this one": the
+		// aim dot at the end of the hand's ray, drawn only while a gun is out,
+		// and the game's green activate reticle, drawn at the centre of the
+		// VIEW from the camera ray. The press used to follow the hand first and
+		// the reticle only when the hand met nothing usable, so with no gun out
+		// (no dot) the hand's ray was an invisible pointer that won over the
+		// reticle the player was looking at: on the training course's table of
+		// intelligence items, the hand had to sweep until the hidden ray found
+		// the item the reticle was already on. Now:
+		//   the hand's own ray on something usable AND the dot showing -> the hand;
+		//   otherwise the reticle, when it shows something usable;
+		//   otherwise the hand, with the low-target assist below.
+		// The reticle is also asked BEFORE the assist, which tilts the ray down
+		// to the first model in reach and could take a different item on the
+		// same table. VRActivateReticle 0 turns the reticle's part off.
+		bool bTookReticle = false;
+		CPlayerStats* pStatsR = m_InterfaceMgr.GetPlayerStats();
+		if (GetConsoleInt("VRActivateReticle", 1) && pStatsR)
+		{
+			HOBJECT hMe = g_pLTClient->GetClientObject();
+			HOBJECT hMove = m_MoveMgr.GetObject();
+			LTVector vDimsMe(0, 0, 0);
+			if (hMe) g_pLTClient->Physics()->GetObjectDims(hMe, &vDimsMe);
+			const float fHandReach = (vDimsMe.x + vDimsMe.z) / 2.0f + 100.0f;
+			IntersectQuery q; IntersectInfo ii;
+			q.m_From  = vPos;
+			q.m_To    = vPos + (vF * fHandReach);
+			q.m_Flags = INTERSECT_OBJECTS | INTERSECT_HPOLY | IGNORE_NONSOLID;
+			bool bHandUsable = false;
+			if (g_pLTClient->IntersectSegment(&q, &ii) && ii.m_hObject
+				&& ii.m_hObject != hMe && ii.m_hObject != hMove && !IsMainWorld(ii.m_hObject))
+			{
+				uint32 dwUser = 0;
+				g_pLTClient->GetObjectUserFlags(ii.m_hObject, &dwUser);
+				bHandUsable = (dwUser & USRFLG_CAN_ACTIVATE) != 0;
+			}
+			const bool bDot = (m_bVRAimMarkerOn != LTFALSE);
+			// The reticle's own ray, recorded when it was drawn, with the head
+			// in the camera. Asked again now, the camera would carry the body
+			// only and miss anything below eye level (the charges sit low).
+			LTFLOAT fAway = 0.0f;
+			LTVector vRFrom, vRDir;
+			if ((!bHandUsable || !bDot) && pStatsR->VRReticleActivateRay(vRFrom, vRDir, fAway))
+			{
+				vPos = vRFrom;
+				vF = vRDir;
+				VEC_NORM(vF);
+				bVRRay = false;
+				bTookReticle = true;
+				VRLog::Msg("Activate: %s; the reticle shows a usable object %.0f away"
+					" - pressing along the reticle's ray",
+					!bHandUsable ? "the hand ray reaches nothing usable"
+								 : "no aim dot is showing, so the hand's ray is not what the player sees",
+					fAway);
+			}
+			else
+			{
+				VRLog::Msg("Activate: the reticle shows nothing usable within reach;"
+					" the hand's ray %s", bHandUsable ? "meets something usable" : "meets nothing usable");
+			}
+		}
+
 		// A LOW TARGET WITHOUT A PRECISE AIM. A parked motorcycle's hit box
 		// is 60 units tall and sits below the hand, and the game's reach is
 		// 100 plus half the player's width. The desk log of a headset session
@@ -23016,7 +23428,7 @@ void CGameClientShell::DoActivate(LTBOOL bEditMode)
 		// time, and takes the first that meets a MODEL (vehicles, bodies,
 		// things on the floor) within reach. A ray that already meets an
 		// object is sent as it is. VRActivateAssist 0 turns this off.
-		if (GetConsoleInt("VRActivateAssist", 1))
+		if (!bTookReticle && GetConsoleInt("VRActivateAssist", 1))
 		{
 			const float fReach = 124.0f;
 			HOBJECT hMe = g_pLTClient->GetClientObject();
@@ -23072,49 +23484,9 @@ void CGameClientShell::DoActivate(LTBOOL bEditMode)
 			}
 		}
 
-		// THE GREEN RETICLE IS A PROMISE. The game's activate reticle is drawn
-		// from the view camera, and this press is cast from the hand; in the
-		// training course's bomb room a tester saw the reticle turn green on a
-		// mock charge and no button did anything, because the hand was pointing
-		// a little off it. When the hand's ray reaches nothing usable and the
-		// reticle IS showing a usable object, the press goes where the reticle
-		// is: the same camera ray it was drawn from. A hand that points at
-		// something usable still wins. VRActivateReticle 0 turns this off.
-		CPlayerStats* pStatsR = m_InterfaceMgr.GetPlayerStats();
-		if (GetConsoleInt("VRActivateReticle", 1) && pStatsR)
-		{
-			HOBJECT hMe = g_pLTClient->GetClientObject();
-			HOBJECT hMove = m_MoveMgr.GetObject();
-			LTVector vDimsMe(0, 0, 0);
-			if (hMe) g_pLTClient->Physics()->GetObjectDims(hMe, &vDimsMe);
-			const float fHandReach = (vDimsMe.x + vDimsMe.z) / 2.0f + 100.0f;
-			IntersectQuery q; IntersectInfo ii;
-			q.m_From  = vPos;
-			q.m_To    = vPos + (vF * fHandReach);
-			q.m_Flags = INTERSECT_OBJECTS | INTERSECT_HPOLY | IGNORE_NONSOLID;
-			bool bHandUsable = false;
-			if (g_pLTClient->IntersectSegment(&q, &ii) && ii.m_hObject
-				&& ii.m_hObject != hMe && ii.m_hObject != hMove && !IsMainWorld(ii.m_hObject))
-			{
-				uint32 dwUser = 0;
-				g_pLTClient->GetObjectUserFlags(ii.m_hObject, &dwUser);
-				bHandUsable = (dwUser & USRFLG_CAN_ACTIVATE) != 0;
-			}
-			// The reticle's own ray, recorded when it was drawn - with the head
-			// in the camera. Asked again now, the camera would carry the body
-			// only and miss anything below eye level (the charges sit low).
-			LTFLOAT fAway = 0.0f;
-			LTVector vRFrom, vRDir;
-			if (!bHandUsable && pStatsR->VRReticleActivateRay(vRFrom, vRDir, fAway))
-			{
-				vPos = vRFrom;
-				vF = vRDir;
-				VEC_NORM(vF);
-				bVRRay = false;
-				VRLog::Msg("Activate: the hand ray reaches nothing usable; the reticle"
-					" shows a usable object %.0f away - pressing along the reticle's ray", fAway);
-			}
-		}
+		// (THE GREEN RETICLE IS A PROMISE, the bomb room's mock charges, where
+		// the reticle turned green and no button did anything, is the reticle
+		// step at the top of this block now.)
 	}
 	else if (m_PlayerCamera.IsFirstPerson())
 	{

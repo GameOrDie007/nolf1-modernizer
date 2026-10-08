@@ -34,6 +34,9 @@ namespace
 	// cannot be mistaken for it.
 	HANDLE			g_hHostProc	= NULL;
 	bool			g_bSwapHands = false;	// the Leftorium (VRLeftorium), set each frame
+	bool			g_bFrameLayout = false;	// the Steam Frame's profile is bound
+	uint32_t		g_nFramePad = 0;		// its D-pad, this poll
+	uint32_t		g_nFrameL = 0, g_nFrameR = 0;	// its PHYSICAL hands' raw buttons
 	bool			g_bSwapSticks = false;	// VRSwapSticks: move on the right, turn on the left
 	DWORD			g_dwNextHostCheck = 0;
 	bool			g_bHostGone	= false;
@@ -132,6 +135,13 @@ bool Poll()
 			g_Snapshot.Hands[1] = h;
 			g_Snapshot.Hands[0].nButtons |=  (g_Snapshot.Hands[1].nButtons & VRBTN_MENU);
 			g_Snapshot.Hands[1].nButtons &= ~(uint32_t)VRBTN_MENU;
+			// the palms and touch sensors go with their hands (v20)
+			float g[7];
+			memcpy(g, g_Snapshot.fAimToGrip[0], sizeof(g));
+			memcpy(g_Snapshot.fAimToGrip[0], g_Snapshot.fAimToGrip[1], sizeof(g));
+			memcpy(g_Snapshot.fAimToGrip[1], g, sizeof(g));
+			uint32_t t = g_Snapshot.nGripValid[0]; g_Snapshot.nGripValid[0] = g_Snapshot.nGripValid[1]; g_Snapshot.nGripValid[1] = t;
+			t = g_Snapshot.nTouch[0]; g_Snapshot.nTouch[0] = g_Snapshot.nTouch[1]; g_Snapshot.nTouch[1] = t;
 		}
 		// THE STICKS ARE THEIR OWN CHOICE. A left-handed player holds the gun in
 		// the left hand and still moves with the left stick - asked by the
@@ -150,11 +160,52 @@ bool Poll()
 			a.nButtons = (a.nButtons & ~(uint32_t)VRBTN_THUMBCLICK) | nB;
 			b.nButtons = (b.nButtons & ~(uint32_t)VRBTN_THUMBCLICK) | nA;
 		}
+		// THE STEAM FRAME. A split gamepad: every face button is on the RIGHT
+		// controller (A/B/X/Y and Menu) and the left has a D-pad and View
+		// instead of X/Y. Its gameplay buttons are read by PHYSICAL hand
+		// (FramePhysical, through VRBinds) and do not follow the Leftorium -
+		// there is no other side for them to move to. What is left in the
+		// Touch-style bits is only what the MENUS read: A select and B back on
+		// the right hand, like a pad, and Menu or View for the menu itself.
+		g_nFramePad = 0;
+		g_nFrameL = g_nFrameR = 0;
+		{
+			const uint32_t nAll = g_Snapshot.Hands[0].nButtons | g_Snapshot.Hands[1].nButtons;
+			g_bFrameLayout = (nAll & VRBTN_FRAME) != 0;
+		}
+		if (g_bFrameLayout)
+		{
+			// Physical hands, after whatever the Leftorium did above.
+			VRHandState& pr = g_Snapshot.Hands[g_bSwapHands ? 0 : 1];
+			VRHandState& pl = g_Snapshot.Hands[g_bSwapHands ? 1 : 0];
+			g_nFrameR = pr.nButtons;
+			g_nFrameL = pl.nButtons;
+			// The Leftorium's menu-bit move above cleared the physical left's
+			// MENU; View is still there, so take both.
+			if (g_bSwapHands && (g_Snapshot.Hands[0].nButtons & VRBTN_MENU)) g_nFrameL |= VRBTN_MENU;
+			const uint32_t kFace = VRBTN_PRIMARY | VRBTN_SECONDARY | VRBTN_MENU;
+			g_Snapshot.Hands[0].nButtons &= ~kFace;
+			g_Snapshot.Hands[1].nButtons &= ~kFace;
+			if (g_nFrameR & VRBTN_PRIMARY)   g_Snapshot.Hands[1].nButtons |= VRBTN_PRIMARY;
+			if (g_nFrameR & VRBTN_SECONDARY) g_Snapshot.Hands[1].nButtons |= VRBTN_SECONDARY;
+			if ((g_nFrameL & (VRBTN_MENU | VRBTN_VIEW)) || (g_nFrameR & VRBTN_PADMENU))
+				g_Snapshot.Hands[0].nButtons |= VRBTN_MENU;
+			g_nFramePad = g_nFrameL & (VRBTN_DPAD_UP | VRBTN_DPAD_DOWN | VRBTN_DPAD_LEFT | VRBTN_DPAD_RIGHT);
+		}
 		g_bHaveData = true;
 		return true;
 	}
 
 	return g_bHaveData;
+}
+
+bool     FrameLayout()     { return g_bFrameLayout; }
+uint32_t FramePadButtons() { return g_nFramePad; }
+uint32_t FramePhysical(int nHand) { return nHand ? g_nFrameR : g_nFrameL; }
+void OverrideGunAim(float fYawDeg, float fPitchDeg)
+{
+	g_Snapshot.Hands[1].fYawDeg = fYawDeg;
+	g_Snapshot.Hands[1].fPitchDeg = fPitchDeg;
 }
 
 const VRSharedState& State()
@@ -317,6 +368,13 @@ void PublishBodyYaw(float fYawRad, int nMode)
 			(n == 0) ? "OFF - host declares in LOCAL, frames disagree by the body yaw"
 					 : ((n == 1) ? "ON (sign +)" : "ON (sign -)"));
 	}
+}
+
+void SetQuitting()
+{
+	if (!g_pShared || (g_pShared->nFlags & VRSHARED_F_QUITTING)) return;
+	g_pShared->nFlags |= VRSHARED_F_QUITTING;
+	VRLog::Msg("VRShared: the game is closing - told the host to end the headset view");
 }
 
 void RequestRecenter()

@@ -135,6 +135,11 @@ class CWeaponModel
 		int GetWeaponId()	const { return m_nWeaponId; }
 		int GetAmmoId()		const { return m_nAmmoId; }
 		int GetAmmoInClip() const { return m_nAmmoInClip; }
+		// PHYSICAL PLAY (VRPhysical.cpp): the clip out and back, by hand. The
+		// clip count is the only thing changed, the rounds stay in the
+		// player's stats, so the game's own totals are never touched.
+		void	VRSetAmmoInClip(int n)	{ m_nAmmoInClip = (n < 0) ? 0 : n; }
+		LTBOOL	VRHasReloadAni();
 
 		LTBOOL CanCurrentWeaponUseAmmo(uint8 nAmmoId);
 

@@ -104,13 +104,20 @@ LTBOOL CFolderGame::Build()
 	}
 
 
-	CSliderCtrl *pSlider=AddSlider(IDS_HEADBOB, IDS_HELP_HEADBOB, kGap, kWidth, &m_nHeadBob);
-	pSlider->SetSliderRange(0, 10);
-	pSlider->SetSliderIncrement(1);
+	// In VR, Head Bob and Weapon Sway are on VR Options (the same two
+	// settings), so they are not repeated here. The values still round-trip
+	// through OnFocus unchanged.
+	CSliderCtrl *pSlider = LTNULL;
+	if (!(VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0))
+	{
+		pSlider=AddSlider(IDS_HEADBOB, IDS_HELP_HEADBOB, kGap, kWidth, &m_nHeadBob);
+		pSlider->SetSliderRange(0, 10);
+		pSlider->SetSliderIncrement(1);
 
-	pSlider=AddSlider(IDS_WEAPONSWAY, IDS_HELP_WEAPONSWAY, kGap, kWidth, &m_nWeaponSway);
-	pSlider->SetSliderRange(0, 10);
-	pSlider->SetSliderIncrement(1);
+		pSlider=AddSlider(IDS_WEAPONSWAY, IDS_HELP_WEAPONSWAY, kGap, kWidth, &m_nWeaponSway);
+		pSlider->SetSliderRange(0, 10);
+		pSlider->SetSliderIncrement(1);
+	}
 
 	pSlider=AddSlider(IDS_PICKUP_MSG_DUR, IDS_HELP_PICKUP_MSG_DUR, kGap, kWidth, &m_nPickupMsgDur);
 	pSlider->SetSliderRange(0, 10);

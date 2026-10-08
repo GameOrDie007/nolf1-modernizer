@@ -255,6 +255,8 @@ CPlayerStats::CPlayerStats()
     m_hVRAmmoStr = LTNULL;
     m_nVRAmmoW = m_nVRAmmoH = 0;
     m_szVRAmmo[0] = 0;
+    m_hVRWrist = LTNULL;
+    m_szVRWrist[0] = 0;
     m_hAmmoFull = LTNULL;
     m_hAmmoEmpty = LTNULL;
 	m_AmmoSz = nullPt;
@@ -2863,6 +2865,10 @@ void CPlayerStats::DestroyAmmoSurfaces()
     m_hVRAmmoStr = LTNULL;
 	m_nVRAmmoW = m_nVRAmmoH = 0;
 	m_szVRAmmo[0] = 0;
+	if (m_hVRWrist)
+        g_pLTClient->DeleteSurface (m_hVRWrist);
+    m_hVRWrist = LTNULL;
+	m_szVRWrist[0] = 0;
 
 	if (m_hAmmoFull)
         g_pLTClient->DeleteSurface (m_hAmmoFull);
@@ -3960,15 +3966,9 @@ void CPlayerStats::VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistA
 	if ((dwUser & USRFLG_CHARACTER) || !(dwUser & USRFLG_CAN_ACTIVATE)) return;
 	if (IsGadgetActivatable(hObj) || fDistAway > c_ActivationDist) return;
 
-	// The camera as TestForActivationObject just read it.
-	HOBJECT hCamera = g_pGameClientShell->GetCamera();
-	if (!hCamera) return;
-	LTRotation rRot;
-	LTVector vU, vR, vF;
-	g_pLTClient->GetObjectPos(hCamera, &m_vVRRetFrom);
-	g_pLTClient->GetObjectRotation(hCamera, &rRot);
-	g_pLTClient->GetRotationVectors(&rRot, &vU, &vR, &vF);
-	m_vVRRetDir  = vF;
+	// The ray TestForActivationObject just cast (m_vVRRetFrom/Dir, set
+	// there): the head's view in a headset, the camera otherwise.
+	const LTVector vF = m_vVRRetDir;
 	// Said when the reticle starts showing a different usable object.
 	static HOBJECT s_hSaid = LTNULL;
 	if (hObj != s_hSaid)
@@ -4009,7 +4009,25 @@ HOBJECT CPlayerStats::TestForActivationObject(uint32 & dwUsrFlags, LTFLOAT & fDi
 
     g_pLTClient->GetObjectPos(hCamera, &vPos);
     g_pLTClient->GetObjectRotation(hCamera, &rRot);
+	// IN A HEADSET, THE VIEW, NOT THE CAMERA OBJECT. The reticle is drawn at
+	// the centre of what the player sees, but outside the eye render the
+	// camera object carries the body's level facing only, so this test ran
+	// along a line at eye height straight ahead of the body. Anything low -
+	// the training course's table of intelligence items, never turned it
+	// green however the player looked at it. The eye render records the view it
+	// drew (body yaw with the head on top); the test uses that.
+	if (g_pGameClientShell->IsFirstPerson())
+	{
+		LTVector vViewPos; LTRotation rViewRot;
+		if (g_pGameClientShell->VRGetViewRay(vViewPos, rViewRot))
+		{
+			vPos = vViewPos;
+			rRot = rViewRot;
+		}
+	}
     g_pLTClient->GetRotationVectors(&rRot, &vU, &vR, &vF);
+	m_vVRRetFrom = vPos;
+	m_vVRRetDir  = vF;
 
   	HOBJECT hPlayerObj = g_pLTClient->GetClientObject();
 	if (!hPlayerObj) return LTNULL;
@@ -4688,4 +4706,91 @@ void CPlayerStats::DrawTargetName()
 			}	
 		}
 	}
+}
+
+// ----------------------------------------------------------------------- //
+//
+//	ROUTINE:	CPlayerStats::VRWristSurface()
+//
+//	PURPOSE:	PHYSICAL PLAY'S WRIST DISPLAY (VRPhysical.cpp draws it on the
+//				off-hand wrist). The game's own health and armor icons and its
+//				HUD font on a dark plate, three rows: health, armor, and the
+//				clip over what is left. Redrawn only when a number changes.
+//
+// ----------------------------------------------------------------------- //
+
+HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH)
+{
+	if (!g_pForeFont || !g_pLTClient || !g_pOptimizedRenderer) return LTNULL;
+	const int nFH = (int)g_pForeFont->GetHeight();
+	const int nRow = nFH + 8;
+	const int nW = 8 + nFH + 8 + 7 * nFH / 2 + 8;
+	const int nH = 3 * nRow + 8;
+
+	CWeaponModel* pWM = g_pGameClientShell ? g_pGameClientShell->GetWeaponModel() : LTNULL;
+	WEAPON* pW = (pWM && g_pWeaponMgr) ? g_pWeaponMgr->GetWeapon(m_nCurrentWeapon) : LTNULL;
+	char szAmmo[24] = "";
+	if (pW && pWM && !pW->bInfiniteAmmo && m_pnAmmo && m_nCurrentAmmo < g_pWeaponMgr->GetNumAmmoTypes())
+	{
+		const int nClip = pWM->GetAmmoInClip();
+		const int nRest = m_pnAmmo[m_nCurrentAmmo] - nClip;
+		sprintf(szAmmo, "%d/%d", nClip, nRest < 0 ? 0 : nRest);
+	}
+	char szKey[48];
+	sprintf(szKey, "%u|%u|%s|%dx%d", m_nHealth, m_nArmor, szAmmo, nW, nH);
+
+	if (m_hVRWrist && !strcmp(szKey, m_szVRWrist))
+	{
+		if (pnW) *pnW = nW;
+		if (pnH) *pnH = nH;
+		return m_hVRWrist;
+	}
+	uint32 nOldW = 0, nOldH = 0;
+	if (m_hVRWrist) g_pLTClient->GetSurfaceDims(m_hVRWrist, &nOldW, &nOldH);
+	if (!m_hVRWrist || (int)nOldW != nW || (int)nOldH != nH)
+	{
+		if (m_hVRWrist) g_pLTClient->DeleteSurface(m_hVRWrist);
+		m_hVRWrist = g_pLTClient->CreateSurface(nW, nH);
+		if (!m_hVRWrist) return LTNULL;
+	}
+
+	// The plate: black (the font leaves its glyph cells black, so anything
+	// else shows boxes behind the digits), with a thin grey rim.
+	LTRect rcAll(0, 0, nW, nH);
+	g_pOptimizedRenderer->FillRect(m_hVRWrist, &rcAll, SETRGB(70, 78, 92));
+	LTRect rcIn(2, 2, nW - 2, nH - 2);
+	g_pOptimizedRenderer->FillRect(m_hVRWrist, &rcIn, SETRGB(0, 0, 0));	// the font's own glyph cells are black
+
+	char sz[24];
+	const int xText = 8 + nFH + 8;
+	HSURFACE hIcons[3] = { m_hHealthIcon, m_hArmorIcon, m_hAmmoIcon };
+	for (int r = 0; r < 3; ++r)
+	{
+		const int y = 6 + r * nRow;
+		if (hIcons[r])
+		{
+			uint32 nIW = 0, nIH = 0;
+			g_pLTClient->GetSurfaceDims(hIcons[r], &nIW, &nIH);
+			LTRect rcSrc(0, 0, (int)nIW, (int)nIH);
+			LTRect rcDst(8, y + 2, 8 + nFH, y + 2 + nFH);
+			if (nIW && nIH)
+				g_pLTClient->ScaleSurfaceToSurfaceTransparent(m_hVRWrist, hIcons[r], &rcDst, &rcSrc, kTransBlack);
+		}
+		if (r == 0)      sprintf(sz, "%u", m_nHealth);
+		else if (r == 1) sprintf(sz, "%u", m_nArmor);
+		else             strcpy(sz, szAmmo[0] ? szAmmo : "-");
+		const HLTCOLOR hTint = (r == 0) ? hHealthTint : (r == 1) ? hArmorTint : hAmmoTint;
+		g_pForeFont->Draw(sz, m_hVRWrist, xText + 1, y + 5, LTF_JUSTIFY_LEFT, SETRGB(8, 8, 8));
+		g_pForeFont->Draw(sz, m_hVRWrist, xText, y + 4, LTF_JUSTIFY_LEFT, hTint ? hTint : kWhite);
+	}
+	strcpy(m_szVRWrist, szKey);
+	{
+		static int s_nSaid = 0;
+		if (s_nSaid++ < 30)
+			VRLog::Msg("VRWrist: redrawn %dx%d (font %d px) - health %u, armor %u, ammo %s",
+				nW, nH, nFH, m_nHealth, m_nArmor, szAmmo[0] ? szAmmo : "-");
+	}
+	if (pnW) *pnW = nW;
+	if (pnH) *pnH = nH;
+	return m_hVRWrist;
 }

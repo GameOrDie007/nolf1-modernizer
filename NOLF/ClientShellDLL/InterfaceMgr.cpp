@@ -5784,7 +5784,9 @@ void CInterfaceMgr::UpdateCursor()
 		UseHardwareCursor(bHWC);
 	// Not in VR photo mode: the cursor was the last 2D element left and kept
 	// the pause panel up with an arrow floating in the air.
-	if (m_bUseCursor && !m_bUseHardwareCursor && !g_bVRPhotoMode)
+	// Nor in the headset at all: nothing there moves it (there is no menu
+	// pointer), so it was an arrow parked on every menu and dialogue window.
+	if (m_bUseCursor && !m_bUseHardwareCursor && !g_bVRPhotoMode && !VRShared::IsLive())
 	{
 		g_pLTClient->Start3D();
 		g_pLTClient->StartOptimized2D();

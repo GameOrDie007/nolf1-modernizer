@@ -147,6 +147,10 @@ public:
 	// False when the reticle has not shown a usable object in the last
 	// quarter of a second.
 	LTBOOL		VRReticleActivateRay(LTVector & vFrom, LTVector & vDir, LTFLOAT & fDistAway);
+	// PHYSICAL PLAY'S WRIST DISPLAY: health, armor and the clip drawn with the
+	// HUD's own icons and font into a small surface of its own, redrawn only
+	// when a number changes. LTNULL before the HUD art is loaded.
+	HSURFACE	VRWristSurface(int* pnW, int* pnH);
 protected:
 	void		VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistAway);
 	HOBJECT		m_hVRRetObj;
@@ -267,6 +271,8 @@ protected:
 	HSURFACE	m_hVRAmmoStr;
 	int			m_nVRAmmoW, m_nVRAmmoH;
 	char		m_szVRAmmo[24];
+	HSURFACE	m_hVRWrist;			// the wrist display (VRWristSurface)
+	char		m_szVRWrist[48];
 	HSURFACE	m_hAmmoFull;
 	HSURFACE	m_hAmmoEmpty;
     LTIntPt      m_AmmoSz;

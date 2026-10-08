@@ -113,6 +113,12 @@ void VRPrims_SetScopeLens(const LTVector& vObjective, const LTRotation& rAxis,
 						  const LTVector& vEyepiece, const LTVector& vRight,
 						  const LTVector& vUp, float fRadius, int nZoom, float fFovDeg);
 void VRPrims_ClearScopeLens();
+
+// A PANEL IN THE WORLD wearing a 2D surface the client drew (physical play's
+// wrist display): four WORLD corners, top-left, top-right, bottom-right,
+// bottom-left, and an alpha for the whole panel. Good for the next publish
+// only, set it every frame it should show. LTNULL clears it.
+void VRPrims_SetSurfaceQuad(HSURFACE hSurf, const LTVector* pCorners, float fAlpha);
 // Where the scope's picture is taken from, as last published; false when the
 // weapon in hand draws no scope lens.
 bool VRPrims_GetScopeObjective(LTVector& vObjective);

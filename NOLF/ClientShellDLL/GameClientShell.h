@@ -223,6 +223,11 @@ class CGameClientShell : public IClientShell
         // and one of the marker's own enable conditions), and clearing it
         // would switch the marker off along with the cross.
         LTBOOL      VRHidesGameCrosshair() const;
+        // The VIEW as the headset showed it last frame: the camera's place and
+        // the body yaw with the head on top, recorded where RenderWorldEyes
+        // turns the camera. Outside that render the camera object carries the
+        // body only. LTFALSE when no head view was recorded in the last 0.25 s.
+        LTBOOL      VRGetViewRay(LTVector & vPos, LTRotation & rRot) const;
 
         // Blood, bullet holes and shell casings stay instead of fading. One
         // decision, so one switch: VRPersistentFX, default on.
@@ -722,6 +727,10 @@ class CGameClientShell : public IClientShell
 		// independently of the head, which is what motion controls did.
 		HLOCALOBJ		m_hVRAimMarker;
 		LTBOOL			m_bVRAimMarkerOn;
+		// See VRGetViewRay.
+		LTVector		m_vVRViewPos;
+		LTRotation		m_rVRViewRot;
+		double			m_fVRViewAtMs;
 		HLOCALOBJ		m_hBoundingBox;
 
         LTBOOL          m_bNightVision;         // does this player currently use NightVision

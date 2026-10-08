@@ -1365,6 +1365,43 @@ static void PublishScope(uint32 nFrame)
 	EndRun(r, s_vScopeEye);
 }
 
+// THE SURFACE PANEL (VRPrims_SetSurfaceQuad): two triangles, depth-tested, the
+// panel's alpha on every vertex (VRPRIM_F_DIFFUSEALPHA), the surface handle in
+// nObject for the renderer to find and upload.
+namespace
+{
+	HSURFACE s_hQuadSurf = LTNULL;
+	LTVector s_vQuad[4];
+	float    s_fQuadAlpha = 1.0f;
+}
+void VRPrims_SetSurfaceQuad(HSURFACE hSurf, const LTVector* pCorners, float fAlpha)
+{
+	s_hQuadSurf = hSurf;
+	if (hSurf && pCorners) for (int i = 0; i < 4; ++i) s_vQuad[i] = pCorners[i];
+	s_fQuadAlpha = fAlpha;
+}
+static void PublishSurfaceQuad()
+{
+	if (!s_hQuadSurf) return;
+	VRPrimRun* r = BeginRun(VRPRIM_T_TRIS, VRPRIM_F_SURFACE | VRPRIM_F_CLAMP | VRPRIM_F_DIFFUSEALPHA,
+							"surface", 3, (HLOCALOBJ)s_hQuadSurf);
+	if (!r) return;
+	static const int kIdx[6] = { 0, 1, 2, 0, 2, 3 };
+	static const float kUV[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+	for (int k = 0; k < 6; ++k)
+	{
+		VRPrimVert* v = AddVert(r);
+		if (!v) break;
+		const LTVector& p = s_vQuad[kIdx[k]];
+		v->fPos[0] = p.x; v->fPos[1] = p.y; v->fPos[2] = p.z;
+		v->fColour[0] = v->fColour[1] = v->fColour[2] = 1.0f;
+		v->fColour[3] = s_fQuadAlpha;
+		v->fUV[0] = kUV[kIdx[k]][0]; v->fUV[1] = kUV[kIdx[k]][1]; v->fSize = 0.0f;
+	}
+	EndRun(r, (s_vQuad[0] + s_vQuad[2]) * 0.5f);
+	s_hQuadSurf = LTNULL;		// one frame's worth; the caller sets it again
+}
+
 void VRPrims_Publish(const LTVector& vEye, float fRange, uint32 nFrame)
 {
 	RepublishSkins();
@@ -1507,6 +1544,7 @@ void VRPrims_Publish(const LTVector& vEye, float fRange, uint32 nFrame)
 	PublishCanvas();
 
 	PublishScope(nFrame);
+	PublishSurfaceQuad();
 	s_pfn(&s_frame);
 
 	static uint32 s_nSaidAt = 0;

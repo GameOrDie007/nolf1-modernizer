@@ -77,6 +77,13 @@ enum eFolderID
 	// The VR options page. Appended rather than inserted: these ids index
 	// the layout tag table position for position.
 	FOLDER_ID_VR,
+	// Its pages (one CFolderVR each, told apart by id). Appended likewise.
+	FOLDER_ID_VR_MOVE,
+	FOLDER_ID_VR_BODY,
+	FOLDER_ID_VR_HANDS,
+	FOLDER_ID_VR_SCREEN,
+	FOLDER_ID_VR_CONTROLS,
+	FOLDER_ID_VR_PHYSICAL,	// Physical Play (VRPhysical.h), appended likewise
 
 	//this must be the last id
 	FOLDER_ID_UNASSIGNED,

@@ -87,12 +87,20 @@ CFolderDisplay::CFolderDisplay()
     m_pResolutionCtrl		= LTNULL;
 	m_pHardwareCursor		= LTNULL;
 	m_pWindowedMode			= LTNULL;
+	m_bVRHidden				= LTFALSE;
 	m_pBlackScreenFixCtrl	= LTNULL;
 }
 
 CFolderDisplay::~CFolderDisplay()
 {
-
+	// In VR these three were made but never put on the page (Build), so the
+	// page does not own them and would not free them.
+	if (m_bVRHidden)
+	{
+		if (m_pRendererCtrl)   debug_delete(m_pRendererCtrl);
+		if (m_pResolutionCtrl) debug_delete(m_pResolutionCtrl);
+		if (m_pWindowedMode)   debug_delete(m_pWindowedMode);
+	}
 }
 
 // Build the folder
@@ -124,7 +132,27 @@ LTBOOL CFolderDisplay::Build()
 		IDS_DISPLAY_TEXTURE, IDS_HARDWARE_CURSOR, IDS_INTEL_BLACKSCREEN_FIX };
 	const int kCol = LabelColumn((int)(225 * fYR), kLabels, sizeof(kLabels) / sizeof(kLabels[0]));
 	const int kSpc = (int)(25 * fYR);
-    m_pRendererCtrl = AddCycleItem(IDS_DISPLAY_RENDERER,IDS_HELP_RENDERER,kCol-kSpc,kSpc,LTNULL);
+	// IN VR THE HEADSET SETS THE SIZE, NOT THIS PAGE. Renderer, Resolution
+	// and Windowed only restart the renderer at a flat screen size: a stick
+	// flicked sideways on Resolution brought the renderer back small, the menu text filled the view and the headset reported 20%
+	// render resolution, with no way back but to kill the game. Greying them
+	// out stopped that but left three dead rows that read as "missing", so in
+	// VR they are not on the page at all, one line says where resolution is
+	// set instead. They are still MADE, off the page: the rest of this folder
+	// reads them, and backing out then finds nothing changed and switches
+	// nothing. The launcher pins VRStereo on the command line, and a folder
+	// is built the first time it opens, so this is known here.
+	m_bVRHidden = (VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0);
+	if (m_bVRHidden)
+	{
+		// Short enough to stay on the page's panel; the longer "set in VR
+		// Options > Screen and Aim" ran off it (desk tour).
+		CLTGUITextItemCtrl* pNote = AddTextItem("Resolution: see VR Options", 0, 0);
+		if (pNote) pNote->Enable(LTFALSE);
+	}
+    m_pRendererCtrl = m_bVRHidden
+		? CreateCycleItem(IDS_DISPLAY_RENDERER,IDS_HELP_RENDERER,kCol-kSpc,kSpc,LTNULL)
+		: AddCycleItem(IDS_DISPLAY_RENDERER,IDS_HELP_RENDERER,kCol-kSpc,kSpc,LTNULL);
 
 	unsigned int i;
 	for (i=0; i < m_rendererArray.GetSize(); i++)
@@ -146,9 +174,13 @@ LTBOOL CFolderDisplay::Build()
 //	}
 
 	// Add the "resolution" control
-    m_pResolutionCtrl = AddCycleItem(IDS_DISPLAY_RESOLUTION,IDS_HELP_RESOLUTION,kCol-kSpc,kSpc,LTNULL, LTFALSE);
+    m_pResolutionCtrl = m_bVRHidden
+		? CreateCycleItem(IDS_DISPLAY_RESOLUTION,IDS_HELP_RESOLUTION,kCol-kSpc,kSpc,LTNULL, LTFALSE)
+		: AddCycleItem(IDS_DISPLAY_RESOLUTION,IDS_HELP_RESOLUTION,kCol-kSpc,kSpc,LTNULL, LTFALSE);
 
-	m_pWindowedMode = AddToggle(IDS_WINDOWED_MODE, IDS_HELP_WINDOWED_MODE, kCol, &m_bWindowedMode);
+	m_pWindowedMode = m_bVRHidden
+		? CreateToggle(IDS_WINDOWED_MODE, IDS_HELP_WINDOWED_MODE, kCol, &m_bWindowedMode)
+		: AddToggle(IDS_WINDOWED_MODE, IDS_HELP_WINDOWED_MODE, kCol, &m_bWindowedMode);
 	m_pWindowedMode->SetOnString(IDS_ON);
 	m_pWindowedMode->SetOffString(IDS_OFF);
 
@@ -601,7 +633,10 @@ void CFolderDisplay::OnFocus(LTBOOL bFocus)
 
 
         UpdateData(LTFALSE);
-		SetSelection(1);
+
+		// In VR row 1 is the first row that is left (see Build); the note
+		// above it cannot be selected.
+		SetSelection(1, m_bVRHidden);
 
 	}
 	else

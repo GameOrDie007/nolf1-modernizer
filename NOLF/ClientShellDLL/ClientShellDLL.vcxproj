@@ -517,7 +517,11 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClCompile Include="VehicleMgr.cpp" />
     <ClCompile Include="VRLog.cpp" />
     <ClCompile Include="VRShared.cpp" />
+    <ClCompile Include="VRBinds.cpp" />
+    <ClCompile Include="VRWalk.cpp" />
+    <ClCompile Include="VRPhysical.cpp" />
     <ClCompile Include="VRPrims.cpp" />
+    <ClCompile Include="VRHands.cpp" />
     <ClCompile Include="VideoFX.cpp" />
     <ClCompile Include="VKDefs.cpp" />
     <ClCompile Include="WeaponChooser.cpp" />
@@ -753,6 +757,9 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClInclude Include="VehicleMgr.h" />
     <ClInclude Include="VRLog.h" />
     <ClInclude Include="VRShared.h" />
+    <ClInclude Include="VRBinds.h" />
+    <ClInclude Include="VRWalk.h" />
+    <ClInclude Include="VRPhysical.h" />
     <ClInclude Include="VRPrims.h" />
     <ClInclude Include="VideoFX.h" />
     <ClInclude Include="VKDefs.h" />

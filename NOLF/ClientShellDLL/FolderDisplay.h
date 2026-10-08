@@ -99,6 +99,7 @@ private:
 	CCycleCtrl						*m_pResolutionCtrl;		// The resolution control
 	CToggleCtrl						*m_pHardwareCursor;
 	CToggleCtrl						*m_pWindowedMode;		// The windowed mode control
+	LTBOOL							m_bVRHidden;			// VR: the three rows above are made but not on the page
 	CToggleCtrl						*m_pBlackScreenFixCtrl;		// The windowed mode control
 
 	CMoArray<FolderDisplayRenderer>	m_rendererArray;		// The array of renderers

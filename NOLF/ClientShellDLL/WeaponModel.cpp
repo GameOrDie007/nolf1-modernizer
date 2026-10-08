@@ -28,6 +28,7 @@
 #include "VRWeaponVar.h"
 #include "VRLog.h"
 #include "VRPrims.h"
+#include "VRPhysical.h"
 extern VarTrack g_vtVRGunAutoTrim;
 
 // VR: aim the weapon with the right controller instead of the head.
@@ -2916,6 +2917,22 @@ WeaponState CWeaponModel::Fire(LTBOOL bUpdateAmmo)
 					   nAmmo > 0 ? "" : "  <- NO AMMO, dry fire");
 	}
 
+	// MANUAL RELOAD (VRPhysical): with the clip out the gun only clicks, however
+	// many rounds are in the pouches, the game's dry-fire sound, and NOT its
+	// out-of-ammo state: that state makes UpdateWeaponModel auto-select, which
+	// reloads the clip by itself (the first desk run heard the P38's reload
+	// animation 0.8 s after the click).
+	if (nAmmo > 0 && m_nAmmoInClip <= 0 && VRPhysical::ManualReloadFor(this))
+	{
+		static int s_nSaidDry = 0;
+		if (s_nSaidDry++ < 40)
+			VRLog::Msg("VRReload: trigger with the clip out - dry fire (%d rounds in the pouches)", nAmmo);
+		if (m_pWeapon->szDryFireSound[0])
+			g_pClientSoundMgr->PlaySoundLocal(m_pWeapon->szDryFireSound, SOUNDPRIORITY_PLAYER_HIGH);
+		m_bFire = LTFALSE;
+		return W_IDLE;
+	}
+
 	// If this weapon uses ammo, make sure we have ammo...
 
 	if (nAmmo > 0)
@@ -3000,7 +3017,12 @@ void CWeaponModel::DecrementAmmo()
 	{
 		if (m_nAmmoInClip <= 0)
 		{
-            ReloadClip(LTTRUE, nAmmo);
+			// MANUAL RELOAD: the empty clip drops and the hands put the next
+			// one in (VRPhysical). The game's automatic reload waits.
+			if (nAmmo > 0 && VRPhysical::ManualReloadFor(this))
+				VRPhysical::OnClipRanOut(this);
+			else
+				ReloadClip(LTTRUE, nAmmo);
 		}
 	}
 
@@ -3552,6 +3574,9 @@ void CWeaponModel::Select()
 	SetState(W_SELECT);
 
     ReloadClip(LTFALSE);
+	// MANUAL RELOAD: a gun comes out of its holster with the clip it went in
+	// with, not a fresh one.
+	VRPhysical::OnSelect(this);
 
     uint32 dwSelectAni = GetSelectAni();
 
@@ -3708,6 +3733,13 @@ void CWeaponModel::SendFireMsg()
 
 	if (!GetFireInfo(vU, vR, vF, vFirePos)) return;
 
+	// THROWN BY HAND (VRPhysical): the way the hand was moving when it let go,
+	// and the speed it goes to the server with.
+	LTFLOAT fVRThrowVelocity = 0.0f;
+	{
+		LTVector vThrowDir;
+		if (VRPhysical::TakeThrow(this, &vThrowDir, &fVRThrowVelocity)) vF = vThrowDir;
+	}
 
 	// Make sure we always ignore the fire sounds...
 
@@ -3795,6 +3827,9 @@ void CWeaponModel::SendFireMsg()
         g_pLTClient->WriteToMessageByte(hWrite, (LTBOOL) (m_eLastFireType == FT_ALT_FIRE));
         g_pLTClient->WriteToMessageByte(hWrite, (uint8) (fPerturb * 255.0f));
 		g_pLTClient->WriteToMessageDWord(hWrite, (int) (g_pLTClient->GetTime() * 1000.0f));
+		// VR: a throw's own speed, 0 for everything else (the server reads it
+		// on every non-gadget fire message, CPlayerObj::HandleWeaponFireMessage).
+		g_pLTClient->WriteToMessageFloat(hWrite, fVRThrowVelocity);
         g_pLTClient->EndMessage2(hWrite, MESSAGE_NAGGLEFAST);
 	}
 }
@@ -5381,6 +5416,13 @@ uint32 CWeaponModel::GetSelectAni()
 uint32 CWeaponModel::GetReloadAni()
 {
 	return m_bUsingAltFireAnis ? m_nAltReloadAni : m_nReloadAni;
+}
+
+// A weapon the game itself reloads (it has the animation for it), what
+// manual reload takes over. The laser guns and the gadgets have none.
+LTBOOL CWeaponModel::VRHasReloadAni()
+{
+	return GetReloadAni() != INVALID_ANI;
 }
 
 // ----------------------------------------------------------------------- //

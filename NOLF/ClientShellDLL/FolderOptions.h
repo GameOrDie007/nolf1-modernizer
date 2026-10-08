@@ -21,9 +21,17 @@ public:
     LTBOOL   Build();
 
     void    OnFocus(LTBOOL bFocus);
+    LTBOOL  Render(HSURFACE hDestSurf);
 
 protected:
     uint32  OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwParam2);
+
+	// In VR: the short list, and the rest behind "Show advanced options".
+	void    AddVRRows();
+	void    RebuildVRRows();
+	bool    m_bVR = false;
+	bool    m_bRebuild = false;
+	CLTGUITextItemCtrl* m_pAdvanced = LTNULL;
 
 };
 

@@ -293,6 +293,12 @@ char s_aFolderTag[FOLDER_ID_UNASSIGNED+1][32] =
 	"FolderHUD",			//FOLDER_ID_HUD
 	"FolderJukebox",			//FOLDER_ID_JUKEBOX
 	"FolderVR",				//FOLDER_ID_VR
+	"FolderVR",				//FOLDER_ID_VR_MOVE: the VR pages share one layout
+	"FolderVR",				//FOLDER_ID_VR_BODY
+	"FolderVR",				//FOLDER_ID_VR_HANDS
+	"FolderVR",				//FOLDER_ID_VR_SCREEN
+	"FolderVR",				//FOLDER_ID_VR_CONTROLS
+	"FolderVR",				//FOLDER_ID_VR_PHYSICAL
 
 	LO_DEFAULT_TAG			//FOLDER_ID_UNASSIGNED,
 

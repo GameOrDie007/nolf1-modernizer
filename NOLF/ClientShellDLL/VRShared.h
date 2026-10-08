@@ -31,7 +31,7 @@
 // no menu art. Presented by the host as a world-anchored quad.
 #define VRSHARED_OVLTEX_NAME	L"Local\\NOLFVR_OvlTex"
 #define VRSHARED_MAGIC		0x56464C4E		// 'NLFV'
-#define VRSHARED_VERSION	19		// 19: host process id  18: recenter  17: haptics  16: the frame marker in memory  15: pause overlay  7: optical centres  8: exact pose  9: fov calibration  10: head-as-mouse  11: body yaw  12: per-eye frustum  13: shared eye texture  14: thumbstick axes
+#define VRSHARED_VERSION	20		// 20: Game Or Die Hands (grip pose, touch)  19: host process id  18: recenter  17: haptics  16: the frame marker in memory  15: pause overlay  7: optical centres  8: exact pose  9: fov calibration  10: head-as-mouse  11: body yaw  12: per-eye frustum  13: shared eye texture  14: thumbstick axes
 
 // Bits packed into VRHandState::nButtons. These belong to the contract, not
 // to either process: the host sets them and the client reads them. They lived
@@ -43,6 +43,26 @@
 #define VRBTN_SECONDARY		(1u << 3)	// B / Y
 #define VRBTN_THUMBCLICK	(1u << 4)
 #define VRBTN_MENU			(1u << 5)	// the left Touch controller's menu button
+// The Steam Frame's own buttons, set by the host only under the Frame's native
+// profile (host/xrvr.h has the same numbers). VRShared::Poll re-lays them into
+// the bits above before anything else reads the hands, see there.
+#define VRBTN_PADX			(1u << 6)	// right X
+#define VRBTN_PADY			(1u << 7)	// right Y
+#define VRBTN_DPAD_UP		(1u << 8)	// left D-pad
+#define VRBTN_DPAD_DOWN		(1u << 9)
+#define VRBTN_DPAD_LEFT		(1u << 10)
+#define VRBTN_DPAD_RIGHT	(1u << 11)
+#define VRBTN_SHOULDER		(1u << 12)	// on the hand it belongs to
+#define VRBTN_VIEW			(1u << 13)	// left View
+#define VRBTN_PADMENU		(1u << 14)	// right Menu
+#define VRBTN_FRAME			(1u << 15)	// both hands: the Frame's profile is bound
+
+// Bits in VRSharedState::nFlags, set by the client.
+// The game is closing. Without it the host saw the eye texture go stale and
+// showed the flat window in the headset (the exit splash, stretched over the
+// whole view), then held its last frame until the window closed, about 4 s.
+// With it the host ends the headset view at once.
+#define VRSHARED_F_QUITTING	(1u << 0)
 
 // --------------------------------------------------------------------------
 // MODELS: the client tells the renderer what to draw.
@@ -475,6 +495,7 @@ typedef void (__cdecl *VRFogPublishFn)(int, float, float, float, float, float);
 #define VRPRIM_F_DIFFUSEALPHA (1u << 6)	// LTOP_SELECTDIFFUSE: alpha from the vertex, not the texture
 #define VRPRIM_F_REALLYCLOSE (1u << 7)	// FLAG_REALLYCLOSE: view-relative; not drawn yet
 #define VRPRIM_F_SCOPELENS   (1u << 8)	// the run's texture is the scope's own render, not szTex
+#define VRPRIM_F_SURFACE     (1u << 9)	// the run's texture is a 2D SURFACE the client drew (its handle in nObject)
 
 #pragma pack(push, 4)
 struct VRPrimVert
@@ -510,6 +531,50 @@ struct VRPrimFrame
 #pragma pack(pop)
 
 typedef void (__cdecl *VRPrimPublishFn)(const VRPrimFrame*);
+
+// ---------------------------------------------------------------------------
+// GAME OR DIE HANDS: Cate's own articulated hands (VRHands.cpp). The client
+// poses them from the controllers and skins them itself, so what crosses is
+// finished world-space triangles, one run per hand, one texture each, lit
+// by the renderer like any model standing where the hand is. Non-indexed,
+// three vertices a triangle, the way the model mesh is built.
+// VRHANDS_F_HIDEGUNHANDS: the view weapon's own Hand* pieces are not drawn at
+// all this frame (not even the mirrored support hand), ours are the hands.
+// ---------------------------------------------------------------------------
+#define VRHANDS_MAGIC		0x53444E48	// 'HNDS'
+#define VRHANDS_VERSION		1
+#define VRHANDS_MAX_VERTS	24576
+#define VRHANDS_F_HIDEGUNHANDS	(1u << 0)
+
+#pragma pack(push, 4)
+struct VRHandVert
+{
+	float		fPos[3];		// world units
+	float		fNrm[3];
+	float		fUV[2];
+};
+
+struct VRHandRun
+{
+	char		szTex[128];		// a 32-bit .tga, relative to the game folder
+	uint32_t	nStart, nCount;	// into verts[]
+	float		fLightAt[3];	// where the hand is, for the light it stands in
+};
+
+struct VRHandsFrame
+{
+	uint32_t	nMagic;
+	uint32_t	nVersion;
+	uint32_t	nFrame;
+	uint32_t	nFlags;			// VRHANDS_F_*
+	uint32_t	nRuns;			// 0..2
+	uint32_t	nVerts;
+	VRHandRun	runs[2];
+	VRHandVert	verts[VRHANDS_MAX_VERTS];
+};
+#pragma pack(pop)
+
+typedef void (__cdecl *VRHandsPublishFn)(const VRHandsFrame*);
 
 // ---------------------------------------------------------------------------
 // DYNAMIC LIGHTS. Every OT_LIGHT the client can see: muzzle flashes,
@@ -855,7 +920,25 @@ struct VRSharedState
 	// A host that vanished while waiting for a headset left the game playing
 	// on, side by side on the monitor, with nothing left to close it.
 	uint32_t	nHostPid;
+
+	// GAME OR DIE HANDS (v20). Where each palm is and what the fingers touch -
+	// what an articulated hand needs and the aim pose alone cannot give.
+	// fAimToGrip: the controller's GRIP pose (the palm, as OpenXR defines it)
+	// located in its own AIM space: position px py pz in metres, then the
+	// rotation qx qy qz qw, OpenXR axes (+X right, +Y up, -Z forward). The
+	// client already places the gun from the aim pose; the palm is that times
+	// this. nGripValid 0 when the runtime gave no grip pose this frame.
+	// nTouch: bit 0 finger on the trigger, bit 1 thumb down (stick, thumbrest
+	// or a face button), bit 31 set when the controller HAS those sensors.
+	// Indexed like Hands[], and swapped with them for the Leftorium.
+	float		fAimToGrip[2][7];
+	uint32_t	nGripValid[2];
+	uint32_t	nTouch[2];
 };
+
+#define VRTOUCH_TRIGGER	(1u << 0)
+#define VRTOUCH_THUMB	(1u << 1)
+#define VRTOUCH_KNOWN	(1u << 31)
 
 #pragma pack(pop)
 
@@ -863,7 +946,7 @@ struct VRSharedState
 // processes would silently read each other's fields at the wrong offsets.
 #ifdef __cplusplus
 static_assert(sizeof(VRHandState) == 48, "VRHandState layout changed");
-static_assert(sizeof(VRSharedState) == 380, "VRSharedState layout changed");
+static_assert(sizeof(VRSharedState) == 452, "VRSharedState layout changed");
 #endif
 
 
@@ -896,6 +979,17 @@ namespace VRShared
 	// hand is a mirror image, and its right-side offsets change sign.
 	void	SetSwapHands(bool bSwap);
 	bool	SwapHands();
+	// The Steam Frame's native profile is bound (VRBTN_FRAME on either hand).
+	bool	FrameLayout();
+	// The Frame's D-pad (always the physical left controller's), for menus.
+	uint32_t FramePadButtons();
+	// The Frame's raw buttons by PHYSICAL hand (0 left, 1 right), whatever
+	// the Leftorium swapped. Zero on any other controller. VRBinds reads these.
+	uint32_t FramePhysical(int nHand);
+	// TWO HANDS ON A LONG GUN (VRPhysical): the gun hand's aim for the rest of
+	// this frame, in the host's own degrees, so the drawn gun, the shot and
+	// Cate's gun hand all take it. The next Poll puts the controller's back.
+	void	OverrideGunAim(float fYawDeg, float fPitchDeg);
 	// The sticks are separate (VRSwapSticks): off, the left physical stick
 	// moves and the right turns, with or without the Leftorium.
 	void	SetSwapSticks(bool bSwap);
@@ -933,6 +1027,8 @@ namespace VRShared
 	void	PublishBodyYaw(float fYawRad, int nMode);
 	// Ask the host to recenter, and read how many times it has (either side).
 	void		RequestRecenter();
+	// The game is closing: the host ends the headset view (VRSHARED_F_QUITTING).
+	void		SetQuitting();
 	uint32_t	RecenterGeneration();
 
 	// Whether the game is drawing a menu rather than the world.

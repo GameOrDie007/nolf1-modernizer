@@ -430,6 +430,12 @@ void CFolderMgr::AddFolder(eFolderID folderID)
 		break;
 
 	case FOLDER_ID_VR:
+	case FOLDER_ID_VR_MOVE:
+	case FOLDER_ID_VR_BODY:
+	case FOLDER_ID_VR_HANDS:
+	case FOLDER_ID_VR_SCREEN:
+	case FOLDER_ID_VR_CONTROLS:
+	case FOLDER_ID_VR_PHYSICAL:
 		pFolder = debug_new(CFolderVR);
 		break;
 

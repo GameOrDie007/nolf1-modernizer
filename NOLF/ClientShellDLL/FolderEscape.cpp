@@ -46,6 +46,9 @@ LTBOOL CFolderEscape::Build()
 
 	m_pResumeCtrl = AddTextItem(IDS_RESUME, FOLDER_CMD_RESUME, IDS_HELP_RESUME);
 
+	// VR Options is the first row of Options (FolderOptions), one place
+	// reachable from here and from the main menu.
+
 	m_pLoadCtrl = AddTextItem(IDS_LOADGAME,	FOLDER_CMD_LOAD_GAME, IDS_HELP_LOAD);
 
 	m_pSaveCtrl = AddTextItem(IDS_SAVEGAME,	FOLDER_CMD_SAVE_GAME, IDS_HELP_SAVE);
@@ -77,6 +80,11 @@ uint32 CFolderEscape::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwPara
 	case FOLDER_CMD_OPTIONS:
 		{
 			m_pFolderMgr->SetCurrentFolder(FOLDER_ID_OPTIONS);
+			break;
+		}
+	case FOLDER_CMD_VR:
+		{
+			m_pFolderMgr->SetCurrentFolder(FOLDER_ID_VR);
 			break;
 		}
 	case FOLDER_CMD_QUIT:

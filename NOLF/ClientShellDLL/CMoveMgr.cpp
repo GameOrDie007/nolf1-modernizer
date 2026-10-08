@@ -28,6 +28,8 @@
 #include "VehicleMgr.h"
 #include "BankedList.h"
 #include "SDL.h"
+#include "VRWalk.h"
+#include "VRLog.h"
 
 #define SPECTATOR_ACCELERATION			100000.0f
 #define MIN_ONGROUND_Y					-10000000.0f
@@ -366,6 +368,12 @@ void CMoveMgr::UpdateControlFlags()
 	m_dwLastControlFlags = m_dwControlFlags;
 	m_dwControlFlags = 0;
 
+	// VR walking (VRWalk.h): the direction "forward" follows and the analog
+	// speed, read once here for this update's flags and motion. Off on a
+	// vehicle and whenever the camera may not move.
+	VRWalk::Update(!m_hObject || !g_pInterfaceMgr->AllowCameraMovement()
+				   || m_pVehicleMgr->IsVehiclePhysics());
+
 	if (!m_hObject || !g_pInterfaceMgr->AllowCameraMovement()) return;
 
 
@@ -421,6 +429,13 @@ void CMoveMgr::UpdateNormalControlFlags()
 
 
 	if (VRCmdOn(COMMAND_ID_RUN) ^ g_pInterfaceMgr->GetSettings()->RunLock())
+	{
+		m_dwControlFlags |= BC_CFLG_RUN;
+	}
+
+	// Analog walking pushed near the rim is a run: the footsteps the guards
+	// hear and the run animation follow the pace, not only the grip.
+	if (VRWalk::WantsRun())
 	{
 		m_dwControlFlags |= BC_CFLG_RUN;
 	}
@@ -1235,6 +1250,18 @@ void CMoveMgr::UpdateNormalMotion()
 		g_pLTClient->GetObjectRotation(m_hObject, &rRot);
 	}
 
+	// VR WALK DIRECTION (VRWalk.h): turn the frame "forward" is measured in
+	// from the body's facing to the head's or the off hand's. The same
+	// EulerRotateY, and the same sign, the view applies the head yaw with.
+	float fVRBodyHeading = 0.0f;		// for the proof line below
+	{
+		LTVector u0, r0, f0;
+		g_pLTClient->GetRotationVectors(&rRot, &u0, &r0, &f0);
+		fVRBodyHeading = (float)atan2(f0.x, f0.z) * 57.29578f;
+		const float fVRYaw = VRWalk::YawOffset();
+		if (fVRYaw != 0.0f) g_pLTClient->EulerRotateY(&rRot, fVRYaw);
+	}
+
     LTVector vUp, vRight, vForward;
 	g_pLTClient->GetRotationVectors(&rRot, &vUp, &vRight, &vForward);
 	vRight.y = 0.0f;
@@ -1287,12 +1314,25 @@ void CMoveMgr::UpdateNormalMotion()
 
 	if (!g_pGameClientShell->IsPlayerDead())
 	{
-		if ((m_dwControlFlags & BC_CFLG_FORWARD) || (m_nMouseStrafeFlags & SF_FORWARD))
+		// ANALOG WALKING: the stick's own angle, not the eight directions the
+		// command flags can say. Its speed is the cap in GetMaxVelMag.
+		const bool bVRAnalog = VRWalk::Analog();
+		if (bVRAnalog)
+		{
+			LTVector vDir = vForward * VRWalk::DirY() + vRight * VRWalk::DirX();
+			if (vDir.Mag() > 0.001f)
+			{
+				vDir.Norm();
+				vAccel += (vDir * fMoveAccel);
+			}
+		}
+
+		if (!bVRAnalog && ((m_dwControlFlags & BC_CFLG_FORWARD) || (m_nMouseStrafeFlags & SF_FORWARD)))
 		{
 			vAccel += (vForward * fMoveAccel);
 		}
 
-		if ((m_dwControlFlags & BC_CFLG_REVERSE) || (m_nMouseStrafeFlags & SF_BACKWARD))
+		if (!bVRAnalog && ((m_dwControlFlags & BC_CFLG_REVERSE) || (m_nMouseStrafeFlags & SF_BACKWARD)))
 		{
 			vAccel -= (vForward * fMoveAccel);
 		}
@@ -1324,12 +1364,12 @@ void CMoveMgr::UpdateNormalMotion()
 		}
 
 
-		if ((m_dwControlFlags & BC_CFLG_STRAFE_LEFT) || (m_nMouseStrafeFlags & SF_LEFT))
+		if (!bVRAnalog && ((m_dwControlFlags & BC_CFLG_STRAFE_LEFT) || (m_nMouseStrafeFlags & SF_LEFT)))
 		{
 			vAccel -= (vRight * fMoveAccel);
 		}
 
-		if ((m_dwControlFlags & BC_CFLG_STRAFE_RIGHT) || (m_nMouseStrafeFlags & SF_RIGHT))
+		if (!bVRAnalog && ((m_dwControlFlags & BC_CFLG_STRAFE_RIGHT) || (m_nMouseStrafeFlags & SF_RIGHT)))
 		{
 			vAccel += (vRight * fMoveAccel);
 		}
@@ -1337,6 +1377,25 @@ void CMoveMgr::UpdateNormalMotion()
 
 	// Reset the mouse strafe flags in case they are set
 	m_nMouseStrafeFlags = 0;
+
+	// THE PROOF LINE for VR walking, once a second while moving: the body's
+	// facing, the facing "forward" was turned to, and the way the player is
+	// actually going. With walk direction Head and the head turned 90 degrees,
+	// the last two agree and the first is 90 away.
+	if (VRWalk::Analog() || VRWalk::YawOffset() != 0.0f)
+	{
+		static float s_fNextSay = 0.0f;
+		const LTVector vV = GetVelocity();
+		const float fSpd = (float)sqrt(vV.x * vV.x + vV.z * vV.z);
+		if (fSpd > 1.0f && fTime >= s_fNextSay)
+		{
+			s_fNextSay = fTime + 1.0f;
+			VRLog::Msg("VRWalk: body faces %.0f, forward is %.0f, moving toward %.0f at %.0f of %.0f%s",
+				fVRBodyHeading, (float)atan2(vForward.x, vForward.z) * 57.29578f,
+				(float)atan2(vV.x, vV.z) * 57.29578f, fSpd, GetMaxVelMag(),
+				VRWalk::Analog() ? " (analog)" : "");
+		}
+	}
 
 
 	g_pPhysicsLT->SetAcceleration(m_hObject, &vAccel);
@@ -2460,6 +2519,14 @@ LTFLOAT CMoveMgr::GetMaxVelMag() const
 			else
 			{
 				fMaxVel = m_fWalkVel;
+			}
+			// ANALOG WALKING: how far the stick is pushed is the speed, from a
+			// slow walk to a full run; ducking or looking through a scope still
+			// caps it at a walk, as the game does.
+			if (VRWalk::Analog())
+			{
+				const bool bSlow = (m_dwControlFlags & BC_CFLG_DUCK) || g_pGameClientShell->IsZoomed();
+				fMaxVel = (bSlow ? m_fWalkVel : m_fRunVel) * VRWalk::Speed();
 			}
 		}
 
