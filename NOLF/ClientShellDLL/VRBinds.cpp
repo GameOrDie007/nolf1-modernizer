@@ -19,12 +19,14 @@ namespace
 		"Use", "Reload", "Jump", "Duck",
 		"Flashlight", "Wheel", "Holster", "QuickSave",
 		"PrevWeapon", "NextWeapon", "NextAmmo",
+		"Mission",
 	};
 
 	const char* const kLabel[ACT_COUNT] = {
 		"Use / activate", "Reload", "Jump", "Duck",
 		"Flashlight", "Weapon wheel", "Holster", "Quick save",
 		"Previous weapon", "Next weapon", "Next ammo type",
+		"Mission objectives",
 	};
 
 	// THE DEFAULTS ARE THE LAYOUTS THAT SHIPPED. Quest: v1.1's, so nothing
@@ -33,11 +35,13 @@ namespace
 		PAD_X, PAD_Y, PAD_A, PAD_B,
 		PAD_LTRIGGER, PAD_RSTICK, PAD_NONE, PAD_NONE,
 		PAD_NONE, PAD_NONE, PAD_NONE,
+		PAD_LSTICK,
 	};
 	const int kFrame[ACT_COUNT] = {
 		PAD_Y, PAD_X, PAD_A, PAD_B,
 		PAD_LTRIGGER, PAD_RSTICK, PAD_DDOWN, PAD_DUP,
 		PAD_DLEFT, PAD_DRIGHT, PAD_RSHOULDER,
+		PAD_LSTICK,
 	};
 
 	uint32 s_nNow = 0, s_nWas = 0;		// bit per Pad

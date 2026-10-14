@@ -46,6 +46,8 @@ namespace VRBinds
 		ACT_USE, ACT_RELOAD, ACT_JUMP, ACT_DUCK,
 		ACT_FLASHLIGHT, ACT_WHEEL, ACT_HOLSTER, ACT_QUICKSAVE,
 		ACT_PREVWEAPON, ACT_NEXTWEAPON, ACT_NEXTAMMO,
+		// Held: the mission objectives, as the original's Mission key.
+		ACT_MISSION,
 		ACT_COUNT
 	};
 

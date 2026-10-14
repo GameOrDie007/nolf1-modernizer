@@ -7568,6 +7568,84 @@ void CGameClientShell::VRPublishModels()
 			}
 		}
 
+		// HER SHOULDERS SQUARE TO THE WAY SHE FACES. The game's rifle animations
+		// stand her side-on, the way a third-person rifle stance looks, and in
+		// the eyes that turned her whole body 45 degrees to the right whenever a
+		// rifle was out (a player's report; back to normal when holstered). Her
+		// shoulder line is measured every frame and the skeleton turned about
+		// the eye so it is at most VRBodySquareKeep degrees off her facing: the
+		// pistol stances, which sit inside that, are left as they are.
+		// OFF BY DEFAULT: at the desk the AK-47's stance measured square (0
+		// degrees), so this is not yet the cause of that report. The angle is
+		// logged whenever it changes either way, so a player's log can say
+		// what their body did; VRBodySquare 1 turns it.
+		if (bPlayerArm && nArmIdx[0][0] >= 0 && nArmIdx[1][0] >= 0 && vBodyFace.Mag() > 0.001f)
+		{
+			const VRModelNode& sqR = s_frame.nodes[nArmIdx[0][0]];
+			const VRModelNode& sqL = s_frame.nodes[nArmIdx[1][0]];
+			// Facing of the shoulder line: (right - left) x up, in this engine's axes.
+			LTVector t(-(sqR.m[11] - sqL.m[11]), 0.0f, sqR.m[3] - sqL.m[3]);
+			LTVector fF(vBodyFace.x, 0.0f, vBodyFace.z);
+			if (t.Mag() > 1.0f && fF.Mag() > 0.001f)
+			{
+				t.Norm(); fF.Norm();
+				const float fAng  = (float)atan2(fF.x * t.z - fF.z * t.x, t.x * fF.x + t.z * fF.z);
+				const float fKeep = GetConsoleFloat("VRBodySquareKeep", 20.0f) * 0.01745329f;
+				const bool bSquareOn = GetConsoleFloat("VRBodySquare", 0.0f) > 0.0f;
+				float fTurn = 0.0f;
+				if (bSquareOn && fAng >  fKeep && fAng <  1.4f) fTurn = fAng - fKeep;
+				if (bSquareOn && fAng < -fKeep && fAng > -1.4f) fTurn = fAng + fKeep;
+				static int s_nSquareSaid = 0; static float s_fSquareLast = 0.0f;
+				if (fabs(fAng - s_fSquareLast) > 0.17f && s_nSquareSaid < 40)
+				{
+					++s_nSquareSaid;
+					VRLog::Msg("VRBody: her shoulders %.0f deg off her facing (weapon %d, walk direction mode %d, two hands %d) - turned %.0f deg",
+						fAng * 57.29578f, (int)m_weaponModel.GetWeaponId(), VRWalk::Mode(), VRPhysical::TwoHanded() ? 1 : 0, fTurn * 57.29578f);
+					s_fSquareLast = fAng;
+				}
+				if (fTurn != 0.0f)
+				{
+					const float c = (float)cos(fTurn), sn = (float)sin(fTurn);
+					const float px = vEye.x, pz = vEye.z;
+					auto TurnSq = [&](VRModelInst& inst)
+					{
+						for (uint32 z = 0; z < inst.nNodeCount; ++z)
+						{
+							float* m = s_frame.nodes[inst.nNodeFirst + z].m;
+							for (int col = 0; col < 3; ++col)
+							{
+								const float a = m[0 + col], b = m[8 + col];
+								m[0 + col] = c * a + sn * b;
+								m[8 + col] = -sn * a + c * b;
+							}
+							const float tx = m[3] - px, tz = m[11] - pz;
+							m[3]  = c * tx + sn * tz + px;
+							m[11] = -sn * tx + c * tz + pz;
+						}
+						const float ix = inst.fPos[0] - px, iz = inst.fPos[2] - pz;
+						inst.fPos[0] = c * ix + sn * iz + px;
+						inst.fPos[2] = -sn * ix + c * iz + pz;
+						if (inst.fRot[0] != 0.0f || inst.fRot[1] != 0.0f || inst.fRot[2] != 0.0f || inst.fRot[3] != 0.0f)
+						{
+							const float h = 0.5f * fTurn;
+							const float ry = (float)sin(h), rw = (float)cos(h);
+							const float x = inst.fRot[0], y = inst.fRot[1], zq = inst.fRot[2], w = inst.fRot[3];
+							inst.fRot[0] = rw * x + ry * zq;
+							inst.fRot[1] = rw * y + ry * w;
+							inst.fRot[2] = rw * zq - ry * x;
+							inst.fRot[3] = rw * w - ry * y;
+						}
+					};
+					TurnSq(mi);
+					for (uint32 k = 0; k < nHHCount; ++k)
+					{
+						if (nHHIdx[k] >= s_frame.nCount || s_frame.inst[nHHIdx[k]].nObject != nHHObj[k]) continue;
+						TurnSq(s_frame.inst[nHHIdx[k]]);
+					}
+				}
+			}
+		}
+
 		// THE BODY UNDER THE HEAD. The whole skeleton - and the gun hanging
 		// from her hand - moves along the ground so her shoulders are
 		// VRBodyShoulderBack behind the eye, the way a person's are. Before
@@ -8100,6 +8178,7 @@ void CGameClientShell::VRPublishModels()
 			// the camera's, not the tracked head's, so tipping the head does not
 			// move her body. Feet stay on the floor; the mirror keeps her as she is.
 			float fScaleE = 1.0f;
+			float fSinkE = 0.0f;		// units the eyes' body goes down after the scale
 			LTVector vPivotE(0.0f, 0.0f, 0.0f);
 			const float fShDrop = GetConsoleFloat("VRBodyShoulderDrop", 0.22f);
 			if (bFP && fShDrop > 0.0f && nArmIdx[0][0] >= 0 && nArmIdx[1][0] >= 0)
@@ -8115,19 +8194,31 @@ void CGameClientShell::VRPublishModels()
 					if (bn.m[7] < fFootY) fFootY = bn.m[7];
 				}
 				const float fStandEyeY = vEye.y - VRHeadOffsetNow().y;
-				const float fWantY = fStandEyeY - fShDrop * 58.75f;
+				// ...AND UNDER THE REAL EYE WHEN IT IS LOWER: crouching for real
+				// put the head inside her chest, her shoulders still at standing
+				// height (a player's screenshot from inside the jacket). Past
+				// VRBodyCrouchSlack metres of the head going down she goes down
+				// with it; within it, a nod or a lean leaves her where she is.
+				const float fSlack = GetConsoleFloat("VRBodyCrouchSlack", 0.10f) * 58.75f;
+				const float fEyeForBody = (vEye.y + fSlack < fStandEyeY) ? vEye.y + fSlack : fStandEyeY;
+				const float fWantY = fEyeForBody - fShDrop * 58.75f;
 				if (fFootY < 1.0e8f && fShY - fFootY > 20.0f && fShY > fWantY)
 				{
 					fScaleE = (fWantY - fFootY) / (fShY - fFootY);
 					if (fScaleE < 0.85f) fScaleE = 0.85f;
 					vPivotE = LTVector((sR.m[3] + sL.m[3]) * 0.5f, fFootY, (sR.m[11] + sL.m[11]) * 0.5f);
+					// What the scale cannot take (it stops at 0.85, past which she
+					// looks squashed) she sinks: her feet go under the floor, where
+					// nobody crouching looks, and her shoulders stay under the head.
+					const float fShScaled = fFootY + (fShY - fFootY) * fScaleE;
+					if (fShScaled > fWantY) fSinkE = fShScaled - fWantY;
 				}
 				static int s_nSaidScaleE = 0;
 				if ((m_nVRModelFrame % 450) == 0 || s_nSaidScaleE++ < 2)
-					VRLog::Msg("VRBody: the eyes' body x%.3f so her shoulders are %.2f m under the standing eye (were %.2f)",
-						fScaleE, fShDrop, (fStandEyeY - fShY) / 58.75f);
+					VRLog::Msg("VRBody: the eyes' body x%.3f, down %.2f m, so her shoulders are %.2f m under the eye (were %.2f; the head %.2f m under standing)",
+						fScaleE, fSinkE / 58.75f, fShDrop, (fStandEyeY - fShY) / 58.75f, (fStandEyeY - vEye.y) / 58.75f);
 			}
-			if (bFP && (fEyesBack != 0.0f || fScaleE < 0.999f)
+			if (bFP && (fEyesBack != 0.0f || fScaleE < 0.999f || fSinkE > 0.0f)
 				&& s_frame.nNodeCount + mi.nNodeCount <= VRMODELS_MAX_NODES)
 			{
 				// Along the body's facing, TURNED, when it follows the walk
@@ -8135,7 +8226,7 @@ void CGameClientShell::VRPublishModels()
 				LTVector vFlatE(vBodyFace.x, 0.0f, vBodyFace.z);
 				if (vFlatE.Mag() < 0.001f) vFlatE = vCamU * (vCamF.y < 0.0f ? 1.0f : -1.0f);
 				vFlatE.y = 0.0f; vFlatE.Norm();
-				const LTVector vOffE = vFlatE * -fEyesBack;
+				const LTVector vOffE = vFlatE * -fEyesBack + LTVector(0.0f, -fSinkE, 0.0f);
 				const uint32 nFirstE = s_frame.nNodeCount;
 				// ...BUT NOT HER ARMS. Set back with the rest, the hands stopped
 				// 10-17 cm short of the controllers - her standing shoulders are
@@ -9584,10 +9675,15 @@ void CGameClientShell::VRDebugFireDrive()
 bool g_bVRPointerShow = false;
 bool g_bVRPointerDown = false;
 int  g_nVRPointerX = 0, g_nVRPointerY = 0;	// where the dot goes, in the menu's coordinates
+// THE MISSION OBJECTIVES, held on a controller button (Options > VR >
+// Controls). CPlayerStats shows them while the original's Mission key is down;
+// its command number is past the held-command mask, so it reads this too.
+bool g_bVRMissionHeld = false;
 
 void CGameClientShell::VRUpdateControllerInput()
 {
 	VRDebugSelectWeapon();
+	g_bVRMissionHeld = false;
 
 	// OnCommandOn and OnCommandOff are TRANSITIONS, not a state the engine
 	// samples every frame. Sending On repeatedly makes the game see a key that
@@ -9885,6 +9981,8 @@ void CGameClientShell::VRUpdateControllerInput()
 				}
 				if (VRBinds::Released(ac.act)) OnCommandOff(ac.cmd);
 			}
+			g_bVRMissionHeld = !bTuning && BindHeld(VRBinds::ACT_MISSION);
+			if (BindPressed(VRBinds::ACT_MISSION)) VRLog::Msg("VRBinds: %s shown", VRBinds::ActLabel(VRBinds::ACT_MISSION));
 		}
 
 		// THE CONTROLS THAT WERE MISSING. Headset testing, 8 September: no additional

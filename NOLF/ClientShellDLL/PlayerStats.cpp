@@ -809,7 +809,8 @@ void CPlayerStats::Update()
         m_bObjCompleted = LTFALSE;
 	}
 
-	m_bObjVisible = (g_pLTClient->IsCommandOn(COMMAND_ID_MISSION) && g_pInterfaceMgr->GetGameState() == GS_PLAYING);
+	extern bool g_bVRMissionHeld;	// the same key on a controller (GameClientShell.cpp)
+	m_bObjVisible = ((g_pLTClient->IsCommandOn(COMMAND_ID_MISSION) || g_bVRMissionHeld) && g_pInterfaceMgr->GetGameState() == GS_PLAYING);
 
 }
 
