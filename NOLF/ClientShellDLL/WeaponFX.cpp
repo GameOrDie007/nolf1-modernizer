@@ -349,7 +349,7 @@ LTBOOL CWeaponFX::CreateObject(ILTClient* pClientDE)
 	// 19 September: one weapon's muzzle came out at dot 0.56 against the 0.60
 	// minimum and the engine silently skipped every flash and every casing -
 	// and holding the gun out to the side, or looking away from it, does the
-	// same thing on purpose. The saving is worth nothing on the machine and the
+	// same thing on purpose. The saving is worth nothing on his machine and the
 	// failure is invisible, which is the worst trade in the file.
 	//
 	// The cvar still works for anyone who wants the retail behaviour back.
@@ -413,7 +413,7 @@ LTBOOL CWeaponFX::CreateObject(ILTClient* pClientDE)
 		// your own weapon and CanSeeFirePos goes false, which silently skips
 		// CreateMuzzleFX, CreateShell and CreateMuzzleLight further down.
 		//
-		// casings from about 8 feet away and no trail.
+		// Headset testing, 19 September: casings from about 8 feet away and no trail.
 		// This line is what says whether the gate is the cause; it is printed for
 		// EVERY shot, inside no branch, because the interesting case is the one
 		// where nothing happens and nothing is logged.
@@ -661,11 +661,11 @@ LTBOOL CWeaponFX::CreateObject(ILTClient* pClientDE)
 
 	// EVERY EFFECT THIS SHOT CREATES, AND WHERE. No more guessing.
 	//
-	// Three diagnostics in a row printed NOTHING in a headset log -
+	// Three diagnostics in a row printed NOTHING in the tester's headset log -
 	// VRFlashPos (the player-view flash objects), then VRWorldFlash (the world
-	// muzzle flash). The player can plainly see a muzzle flash way off to the right
+	// muzzle flash). He can plainly see a muzzle flash way off to the right
 	// about twenty feet away, so it is a fourth thing, and each round of
-	// reasoning about which has cost a headset test.
+	// reasoning about which has cost him a headset trip.
 	//
 	// So stop reasoning. This prints the flags that decide every branch and the
 	// position of every effect the shot produces, against the camera, so the
@@ -1061,7 +1061,7 @@ void CWeaponFX::CreateTracer()
 				// AND AGAINST THE GUN YOU CAN SEE, decomposed so the answer is
 				// a direction and not just a distance.
 				//
-				// the tracers start
+				// Headset testing, 19 September, on every weapon: the tracers start
 				// around 6-12 inches from the gun, on the right hand side.
 				// Six to twelve inches is 9 to 18 units, and "to the right" is
 				// the part that matters - the start is anchored to m_vFirePos,
@@ -1069,7 +1069,7 @@ void CWeaponFX::CreateTracer()
 				// then so does every tracer, at every range.
 				//
 				// VRPrims_DrawnGunCentre is a point on the drawn weapon - it is
-				// what the shell casings leave from, and the player has not reported
+				// what the shell casings leave from, and he has not reported
 				// those as displaced since they were moved onto it. So it is the
 				// reference the tracer should be measured against, and probably
 				// the one it should be anchored to.
@@ -1504,17 +1504,17 @@ void CWeaponFX::CreateShell()
 		// is the HAND (corrected 19 September - it is not the barrel end),
 		// and a shell should leave the body rather than either: headset testing,
 		// 19 September, saw the shells mainly leaving the barrel, and noted that
-		// the guns are different lengths. The report is right that a
+		// the guns are different lengths. He is right that a
 		// fixed step back from the muzzle only suits one weapon. The centroid
 		// of the gun's own drawn nodes is about where the ejection port is and
-		// scales with whatever model is in the player's hand.
+		// scales with whatever model is in his hand.
 		// THE BREACH, IN TRUE WORLD SPACE, FROM THE AUTHORED OFFSET.
 		//
 		// This used VRPrims_DrawnGunCentre, and that is the wrong coordinate
 		// space - the same fault that put the tracer metres to the right while
 		// the log swore it was beside the gun. Those drawn-gun points are
 		// published to OUR renderer and are not where a world-space effect is
-		// drawn. In the frames from a clip the casings are scattered to
+		// drawn. In the frames from the tester's clip the casings are scattered to
 		// the right exactly as the tracer was, which is the same bug wearing a
 		// different hat - and it is why the shells-from-the-barrel report never
 		// quite got fixed by moving them
@@ -1537,8 +1537,8 @@ void CWeaponFX::CreateShell()
 			// the third-person one - and we are applying it to the player-view
 			// muzzle, which is a different reference and a different length.
 			// Measured: the ak47's -50.3 against a muzzle 17 units ahead of the
-			// grip puts the casing 33 units BEHIND the player's hand, half a metre back
-			// past the player's wrist. The Sterling's -10 lands correctly at 11 units.
+			// grip puts the casing 33 units BEHIND his hand, half a metre back
+			// past his wrist. The Sterling's -10 lands correctly at 11 units.
 			// So the figure is right for the model it was authored against and
 			// cannot be trusted wholesale against this one.
 			//
@@ -1559,7 +1559,7 @@ void CWeaponFX::CreateShell()
 
 			// AND OUT OF THE PORT, NOT THE BORE. Without this the casing leaves
 			// along the barrel's own centre line, which is what the report of
-			// shells leaving the barrel describes.
+			// shells leaving the barrel describes (headset testing, 19 September).
 			// An ejection port sits to the right of the
 			// bore and slightly above it on nearly every weapon in this game.
 			// Small, and cvar-tunable rather than argued about.
@@ -1646,7 +1646,7 @@ void CWeaponFX::CreateShell()
 
 		// WHERE THE CASING ACTUALLY STARTS, against the muzzle the same shot used.
 		//
-		// casings come from about 8 feet away and
+		// Headset testing, 19 September: casings come from about 8 feet away and
 		// there is no bullet trail at all. m_vFirePos arrives here as the HAND - NOT, as
 		// this comment claimed, re-based onto WeaponModel's m_vFlashPos, which
 		// nothing ever assigns to it. GetShellEjectPos then
@@ -1657,7 +1657,7 @@ void CWeaponFX::CreateShell()
 		// never offered to it.
 		//
 		// This line does not fix it. It prints the separation so the desk can say
-		// whether it is a few units (fine), ~100 (the reported 8 feet) or ~2000 (the map
+		// whether it is a few units (fine), ~100 (his 8 feet) or ~2000 (the map
 		// origin), because those three want three different answers and reading the
 		// code cannot tell them apart.
 		{
@@ -2025,7 +2025,7 @@ void CWeaponFX::VRNodeProbe() const
 // a tracer that leaves the barrel correctly and a casing that leaves the breach
 // correctly are not the same point.
 //
-// Returns zero unless the player has tuned that effect, so nothing moves until asked.
+// Returns zero unless he has tuned that effect, so nothing moves until asked.
 static LTVector VRPerEffectOffset(const LTVector& vOff, const LTVector& vDir)
 {
 	if (vOff.MagSqr() < 0.0001f) return LTVector(0.0f, 0.0f, 0.0f);
@@ -2069,8 +2069,8 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 	// you can SEE, because a tracer drawn from the grip starts behind and
 	// below the barrel it should be leaving.
 	//
-	// the tracers came out below and
-	// behind the gun, and again on the reverted build. The report was right both times, and both
+	// Headset testing, 19 September, twice: the tracers came out below and
+	// behind the gun, and again on the reverted build. He was right both times, and both
 	// times the muzzle work was in the wrong file - the muzzle FLASH was fine,
 	// because that is placed from VRPrims_DrawnMuzzle. The tracer never asked.
 	//
@@ -2102,8 +2102,8 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 		// The stored point is written by the weapon model's update. On a frame
 		// where that has not run, or has not run since the player moved, the
 		// point is left behind in the world - 286 units is 4.8 metres, which is
-		// simply where the player was standing a moment ago. The guard then correctly
-		// refused it and the tracer went back to leaving the player's hand, which is the
+		// simply where he was standing a moment ago. The guard then correctly
+		// refused it and the tracer went back to leaving his hand, which is the
 		// bug this function exists to fix.
 		//
 		// So do not carry a point across frames at all. The shot already knows
@@ -2130,14 +2130,14 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 		// So anchor where the SHELL CASINGS leave from. That point is on the
 		// drawn weapon, it is published by VRPublishModels rather than by the
 		// weapon model's update - which is the one that went stale and threw
-		// out 286-unit muzzles - and the player has not called the casings displaced
+		// out 286-unit muzzles - and he has not called the casings displaced
 		// since they were moved onto it. VRTracerFwd nudges it up the barrel if
 		// leaving from the gun's middle reads wrong; 0 is the conservative
 		// default, because every overshoot today has been in that direction.
 		// TRUE WORLD SPACE, AND NOTHING FROM THE DRAWN GUN.
 		//
-		// Frames pulled out of a clip (ffmpeg, 19 September)
-		// settle what four rounds of logging could not. The bright thing the player has
+		// Frames pulled out of the tester's own clip (ffmpeg, 19 September)
+		// settle what four rounds of logging could not. The bright thing he has
 		// been reporting as muzzle flashes way off to the right about twenty feet
 		// away is not a flash at all: it is THE TRACER, floating detached to
 		// the right of the gun. The flash at the wall is the impact, ringed by
@@ -2153,7 +2153,7 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 		// away on screen. The shell casings use the same anchor and are scattered
 		// to the right in those same frames.
 		//
-		// m_vFirePos IS true world: the bullets land where the player aims, and the
+		// m_vFirePos IS true world: the bullets land where he aims, and the
 		// tracer's own vEndPos is the impact and renders correctly. So build the
 		// muzzle from it and never leave that space.
 		//
@@ -2176,7 +2176,7 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 			// the magazine - the exact flash-right-trail-wrong
 			// split that started this whole thread.
 			//
-			// Caught by re-reading the change rather than by a tester finding it.
+			// Caught by re-reading my own change rather than by him finding it.
 			const float fMzScale = (pWMm->VRWeaponScale() > 0.01f)
 								 ? (1.0f / pWMm->VRWeaponScale()) : 1.0f;
 			const LTVector vOff = pWMm->GetMuzzleOffset() * fMzScale;
@@ -2277,7 +2277,7 @@ LTVector CWeaponFX::CalcFirePos(LTVector vFirePos)
 		//
 		// Below, this asks the player's THIRD-PERSON body for its "Flash"
 		// attachment socket. That body stands where the player object is, which
-		// in VR is nowhere near where the player is looking from - so every muzzle
+		// in VR is nowhere near where he is looking from - so every muzzle
 		// effect built on the result appears somewhere across the room.
 		//
 		// It is reached because IsFirstPerson() is not reliably true while

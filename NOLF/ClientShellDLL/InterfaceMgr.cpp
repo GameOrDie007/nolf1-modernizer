@@ -5777,6 +5777,36 @@ void CInterfaceMgr::ShowDemoScreens(LTBOOL bQuit)
 }
 
 
+extern bool g_bVRPointerShow, g_bVRPointerDown;
+extern int  g_nVRPointerX, g_nVRPointerY;
+
+// THE MENU POINTER'S DOT: a white disc with a dark rim, red while the trigger is
+// down, drawn where the hand points - its own position, not m_CursorPos, which
+// the real mouse keeps resetting to the middle of the window (desk). Drawn
+// like the rest of the menu, so it lands on the panel where the menu does.
+static HSURFACE VRPointerDot(bool bDown)
+{
+	static HSURFACE s_hDot[2] = { LTNULL, LTNULL };
+	HSURFACE& h = s_hDot[bDown ? 1 : 0];
+	if (h || !g_pLTClient || !g_pOptimizedRenderer) return h;
+	const int N = 44;
+	h = g_pLTClient->CreateSurface(N, N);
+	if (!h) return h;
+	LTRect rc(0, 0, N, N);
+	g_pOptimizedRenderer->FillRect(h, &rc, SETRGB(0, 0, 0));		// the transparent colour
+	const float c = (N - 1) * 0.5f;
+	for (int y = 0; y < N; ++y)
+		for (int x = 0; x < N; ++x)
+		{
+			const float d = sqrtf((x - c) * (x - c) + (y - c) * (y - c));
+			if (d > c) continue;
+			const HLTCOLOR col = (d > c - 4.0f) ? SETRGB(20, 20, 24) : (bDown ? SETRGB(230, 30, 25) : SETRGB(250, 250, 250));
+			LTRect px(x, y, x + 1, y + 1);
+			g_pOptimizedRenderer->FillRect(h, &px, col);
+		}
+	return h;
+}
+
 void CInterfaceMgr::UpdateCursor()
 {
 	LTBOOL bHWC = (GetConsoleInt("HardwareCursor",0) > 0 && GetConsoleInt("DisableHardwareCursor",0) == 0);
@@ -5786,6 +5816,19 @@ void CInterfaceMgr::UpdateCursor()
 	// the pause panel up with an arrow floating in the air.
 	// Nor in the headset at all: nothing there moves it (there is no menu
 	// pointer), so it was an arrow parked on every menu and dialogue window.
+	if (VRShared::IsLive() && g_bVRPointerShow && !g_bVRPhotoMode)
+	{
+		HSURFACE hDot = VRPointerDot(g_bVRPointerDown);
+		if (hDot)
+		{
+			g_pLTClient->Start3D();
+			g_pLTClient->StartOptimized2D();
+			g_pLTClient->DrawSurfaceToSurfaceTransparent(g_pLTClient->GetScreenSurface(), hDot, LTNULL,
+				g_nVRPointerX - 22, g_nVRPointerY - 22, SETRGB(0, 0, 0));
+			g_pLTClient->EndOptimized2D();
+			g_pLTClient->End3D();
+		}
+	}
 	if (m_bUseCursor && !m_bUseHardwareCursor && !g_bVRPhotoMode && !VRShared::IsLive())
 	{
 		g_pLTClient->Start3D();

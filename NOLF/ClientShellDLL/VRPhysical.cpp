@@ -25,6 +25,7 @@
 #include "ClientSoundMgr.h"
 #include "FXButeMgr.h"
 #include "VRPrims.h"
+#include "VRHands.h"
 #include "InterfaceMgr.h"
 #include "Overlays.h"
 
@@ -56,11 +57,11 @@ namespace
 	// sits 8 cm behind and 10 cm below the eyes, turned with the head, so it
 	// stays over the shoulders when the head looks down at a holster.
 	const SlotDef kSlots[SLOT_COUNT] = {
-		{ "hip",           0.20f, -0.50f,  0.00f, 0.13f, 1, CAT_SIDEARM, true  },
+		{ "hip",           0.30f, -0.64f,  0.08f, 0.20f, 1, CAT_SIDEARM, true  },
 		{ "shoulder",      0.15f, -0.08f, -0.12f, 0.16f, 1, CAT_LONG,    false },
 		{ "chest",        -0.10f, -0.28f,  0.12f, 0.13f, 1, CAT_GADGET,  true  },
 		{ "belt",          0.02f, -0.48f,  0.15f, 0.13f, 1, CAT_THROWN,  true  },
-		{ "ammo pouch",   -0.18f, -0.46f,  0.06f, 0.13f, 0, CAT_NONE,    true  },
+		{ "ammo pouch",   -0.32f, -0.62f,  0.10f, 0.20f, 0, CAT_NONE,    true  },
 	};
 	const char* const kCatName[CAT_COUNT] = { "sidearm", "long gun", "gadget", "throwable" };
 
@@ -107,6 +108,14 @@ namespace
 	int			s_nClipMem[256];		// the clip each weapon was put away with
 	int			s_nClipMemAmmo[256];
 	bool		s_bClipMemInit = false;
+	// rack the slide
+	bool		s_bRanDry = false;		// the gun in hand was fired empty (its slide is back)
+	bool		s_bNeedRack = false;	// a clip went in with the slide back: pull it
+	int			s_nRackWeapon = -1;
+	bool		s_bRacking = false;		// the off hand has the gun and is pulling
+	float		s_fRackFrom = 0.0f;		// where along the gun it took hold, metres
+	float		s_fSlideBack = 0.0f;	// the drawn slide: 0 home .. 1 back
+	bool		s_bMagOut = false;		// the drawn gun's own magazine is out
 
 	// --- melee -------------------------------------------------------------
 	HOBJECT		s_hHitTarget = LTNULL;	// the last character struck, watched to see it go down
@@ -118,6 +127,8 @@ namespace
 	bool s_bGlasses = false;	// VRGlassesToFace
 	bool s_bThrow = false;		// VRThrowByHand
 	bool s_bTwoHand = false;	// VRTwoHanded
+	bool s_bRack = false;		// VRRackSlide
+	bool s_bGunAmmo = false;	// VRAmmoOnGun
 	bool s_bTwoHandOn = false;	// the off hand holds the long gun's front now
 	// The throw: 0 nothing, 1 readied (trigger held), 2 thrown (the fire is
 	// held until the weapon sends it, or 0.35 s).
@@ -263,14 +274,15 @@ namespace
 		if (GetConsoleFloat("VRHaptics", 1.0f) > 0.0f) VRShared::Haptic(nHand, fAmp, fMs);
 	}
 
-	// The camera eye and the BODY basis in WORLD (no head: the head is applied
-	// only inside the eye renders). False with no camera.
+	// The real eye (the camera plus the head's offset, as the hands are drawn) and
+	// the BODY basis in WORLD. False with no camera.
 	bool CameraFrame(LTVector& vEye, LTVector& vR, LTVector& vU, LTVector& vF)
 	{
 		HLOCALOBJ hCam = g_pGameClientShell ? g_pGameClientShell->GetCamera() : LTNULL;
 		if (!hCam) return false;
 		LTRotation rC;
 		g_pLTClient->GetObjectPos(hCam, &vEye);
+		vEye += g_pGameClientShell->VRHeadOffsetNow();	// the real eye, as the hands are drawn
 		g_pLTClient->GetObjectRotation(hCam, &rC);
 		g_pLTClient->GetRotationVectors(&rC, &vU, &vR, &vF);
 		return true;
@@ -299,17 +311,20 @@ namespace
 		s_bGlasses  = GetConsoleFloat("VRGlassesToFace", 0.0f) > 0.0f;
 		s_bThrow    = GetConsoleFloat("VRThrowByHand", 0.0f) > 0.0f;
 		s_bTwoHand  = GetConsoleFloat("VRTwoHanded", 0.0f) > 0.0f;
+		s_bRack     = GetConsoleFloat("VRRackSlide", 0.0f) > 0.0f;
+		s_bGunAmmo  = GetConsoleFloat("VRAmmoOnGun", 0.0f) > 0.0f;
 		const int n = (s_bHolsters ? 1 : 0) | (s_bManual ? 2 : 0) | (s_bMelee ? 4 : 0) | (s_bWrist ? 8 : 0)
-					| (s_bGlasses ? 16 : 0) | (s_bThrow ? 32 : 0) | (s_bTwoHand ? 64 : 0);
+					| (s_bGlasses ? 16 : 0) | (s_bThrow ? 32 : 0) | (s_bTwoHand ? 64 : 0)
+					| (s_bRack ? 128 : 0) | (s_bGunAmmo ? 256 : 0);
 		if (n != s_nSaidSwitches)
 		{
 			s_nSaidSwitches = n;
 			VRLog::Msg("VRPhysical: holsters %s, manual reload %s, swing to hit %s, wrist display %s,"
-				" glasses to the eyes %s, throw by hand %s, two hands on long guns %s"
-				" (holster height %+.0f cm, swing speed %.1f m/s)",
+				" glasses to the eyes %s, throw by hand %s, two hands on long guns %s, rack the slide %s,"
+				" ammo on the gun %s (holster height %+.0f cm, swing speed %.1f m/s)",
 				s_bHolsters ? "ON" : "off", s_bManual ? "ON" : "off", s_bMelee ? "ON" : "off",
 				s_bWrist ? "ON" : "off", s_bGlasses ? "ON" : "off", s_bThrow ? "ON" : "off",
-				s_bTwoHand ? "ON" : "off",
+				s_bTwoHand ? "ON" : "off", s_bRack ? "ON" : "off", s_bGunAmmo ? "ON" : "off",
 				GetConsoleFloat("VRHolsterHeight", 0.0f),
 				GetConsoleFloat("VRSwingSpeed", 2.0f));
 		}
@@ -486,7 +501,8 @@ namespace
 	{
 		const VRHandState& g = s.Hands[1];
 		float f[3]; HandForward(g, f);
-		const LTVector a(g.fPosX, g.fPosY, g.fPosZ);
+		float dPalm[3]; VRShared::GunPalmShift(dPalm);
+		const LTVector a(g.fPosX + dPalm[0], g.fPosY + dPalm[1], g.fPosZ + dPalm[2]);
 		const LTVector b = a + LTVector(f[0], f[1], f[2]) * 0.22f;
 		return SegDist(a, b, LTVector(p[0], p[1], p[2]));
 	}
@@ -520,7 +536,7 @@ namespace
 			AMMO* pA = g_pWeaponMgr->GetAmmo(pWM->GetAmmoId());
 			VRLog::Msg("VRReload: off hand took a clip from the ammo pouch (%.2f m) - %s, %d rounds left;"
 				" off hand %.2f m from the gun", fOffSlotDist, pA ? pA->szName : "?", nRounds, DistToGun(s, op));
-			Buzz(0, 0.35f, 25.0f);
+			Buzz(0, 0.7f, 60.0f);
 		}
 		if (s_bClipInHand)
 		{
@@ -532,7 +548,7 @@ namespace
 				return;
 			}
 			const float fD = DistToGun(s, op);
-			if (fD < 0.12f)
+			if (fD < GetConsoleFloat("VRClipReach", 0.18f))
 			{
 				s_bClipInHand = false;
 				pWM->ReloadClip(LTFALSE, -1, LTTRUE);
@@ -541,9 +557,206 @@ namespace
 					g_pClientSoundMgr->PlaySoundLocal(pW->szReloadSounds[0], SOUNDPRIORITY_PLAYER_HIGH);
 				VRLog::Msg("VRReload: clip IN - %s now %d in the clip (%d rounds in all); the off hand reached"
 					" %.2f m from the gun", pW ? pW->szName : "?", pWM->GetAmmoInClip(), nRounds, fD);
-				Buzz(1, 0.6f, 35.0f);
+				Buzz(1, 0.7f, 50.0f);
+				Buzz(0, 0.7f, 50.0f);
+				// Fired empty, the slide stayed back: it has to be pulled before
+				// the gun fires. A clip changed with rounds still in the gun
+				// leaves one in the chamber, so that one fires at once.
+				if (s_bRack && s_bRanDry)
+				{
+					s_bNeedRack = true;
+					s_nRackWeapon = nWeapon;
+					s_bRacking = false;
+					VRLog::Msg("VRRack: the %s went dry, so its %s is back - the off hand grips the gun and pulls it",
+						pW ? pW->szName : "?", CategoryOf(nWeapon) == CAT_LONG ? "action" : "slide");
+				}
+				s_bRanDry = false;
 			}
 		}
+	}
+
+	void HandAxes(const VRHandState& h, float* r, float* u, float* f);	// below
+
+	// --- rack the slide ----------------------------------------------------
+	// The off hand's grip closing on the gun (VRRackReach, 18 cm) takes hold;
+	// pulled back along the gun by VRRackPull (4.5 cm) it racks. Measured from
+	// the gun hand, so a gun hand moving with it does not count.
+	// THE SLIDE AND THE MAGAZINE AS DRAWN: back with the off hand while it
+	// pulls, back and held there once the gun has fired its clip empty, home
+	// otherwise; the gun's own magazine gone while the clip is out.
+	void UpdateSlideState(const VRSharedState& s, CWeaponModel* pWM)
+	{
+		s_fSlideBack = 0.0f;
+		s_bMagOut = false;
+		if (!pWM || !ManualReloadFor(pWM)) return;
+		s_bMagOut = pWM->GetAmmoInClip() <= 0;
+		if (!s_bRack) return;
+		if (s_bRacking && s.Hands[0].nActive && s.Hands[1].nActive)
+		{
+			const VRHandState& g = s.Hands[1];
+			const VRHandState& o = s.Hands[0];
+			float f[3]; HandForward(g, f);
+			const float fAlong = (o.fPosX - g.fPosX) * f[0] + (o.fPosY - g.fPosY) * f[1] + (o.fPosZ - g.fPosZ) * f[2];
+			const float fPull = GetConsoleFloat("VRRackPull", 0.045f);
+			float t = (s_fRackFrom - fAlong) / (fPull > 0.005f ? fPull : 0.045f);
+			s_fSlideBack = (t < 0.0f) ? 0.0f : (t > 1.0f) ? 1.0f : t;
+		}
+		else if (s_bNeedRack || (s_bRanDry && pWM->GetAmmoInClip() <= 0))
+			s_fSlideBack = 1.0f;
+	}
+
+	void UpdateRack(const VRSharedState& s, CWeaponModel* pWM, bool bGripDownOff, bool bGripUpOff)
+	{
+		if (!s_bNeedRack) return;
+		if (!s_bRack || !ManualReloadFor(pWM) || pWM->GetWeaponId() != s_nRackWeapon || pWM->GetAmmoInClip() <= 0)
+		{
+			s_bNeedRack = false;
+			s_bRacking = false;
+			return;
+		}
+		const VRHandState& g = s.Hands[1];
+		const VRHandState& o = s.Hands[0];
+		if (!g.nActive || !o.nActive) return;
+		float f[3]; HandForward(g, f);
+		const float r[3] = { o.fPosX - g.fPosX, o.fPosY - g.fPosY, o.fPosZ - g.fPosZ };
+		const float fAlong = r[0] * f[0] + r[1] * f[1] + r[2] * f[2];
+		const float op[3] = { o.fPosX, o.fPosY, o.fPosZ };
+		if (!s_bRacking)
+		{
+			if (bGripDownOff && !s_bClipInHand && DistToGun(s, op) < GetConsoleFloat("VRRackReach", 0.18f))
+			{
+				s_bRacking = true;
+				s_fRackFrom = fAlong;
+				s_h[0].bTaken = true;
+				Buzz(0, 0.5f, 30.0f);
+				VRLog::Msg("VRRack: the off hand took hold of the gun %.2f m along it", fAlong);
+			}
+			return;
+		}
+		if (bGripUpOff)
+		{
+			s_bRacking = false;
+			VRLog::Msg("VRRack: let go %.3f m back - not far enough, take hold and pull again", s_fRackFrom - fAlong);
+			return;
+		}
+		const float fPull = s_fRackFrom - fAlong;
+		if (fPull >= GetConsoleFloat("VRRackPull", 0.045f))
+		{
+			s_bNeedRack = false;
+			s_bRacking = false;
+			WEAPON* pW = pWM->GetWeapon();
+			// The weapon's last reload sound: the slide or the bolt going home.
+			if (pW)
+				for (int i = WMGR_MAX_RELOAD_SNDS - 1; i >= 0; --i)
+					if (pW->szReloadSounds[i][0])
+					{
+						g_pClientSoundMgr->PlaySoundLocal(pW->szReloadSounds[i], SOUNDPRIORITY_PLAYER_HIGH);
+						break;
+					}
+			Buzz(0, 0.9f, 60.0f);
+			Buzz(1, 0.9f, 60.0f);
+			VRLog::Msg("VRRack: RACKED - pulled %.3f m; the %s fires", fPull, pW ? pW->szName : "?");
+		}
+	}
+
+	// --- the clip in the hand ----------------------------------------------
+	// NOLF has no magazine model, so ours: from the moment the off hand takes a
+	// clip from the pouch until it goes in or is dropped, a dark magazine with
+	// the brass of its top round showing, standing up in the off hand's palm.
+	// A rifle's is bigger. VRClipShow 0 hides it.
+	void UpdateClipInHand(const VRSharedState& s, CWeaponModel* pWM)
+	{
+		if (!s_bClipInHand || !pWM || GetConsoleFloat("VRClipShow", 1.0f) <= 0.0f) return;
+		const VRHandState& o = s.Hands[0];
+		if (!o.nActive) return;
+		LTVector vEye, vR, vU, vF;
+		if (!CameraFrame(vEye, vR, vU, vF)) return;
+		float cr[3], cu[3], cf[3];
+		HandAxes(o, cr, cu, cf);
+		float dPalm[3]; VRShared::PalmShift(0, dPalm);
+		const bool bLong = CategoryOf(pWM->GetWeaponId()) == CAT_LONG;
+		const float hw = bLong ? 0.016f : 0.012f;	// half: across the palm
+		const float hl = bLong ? 0.090f : 0.058f;	// half: its length, up through the fist
+		const float hd = bLong ? 0.032f : 0.016f;	// half: front to back
+		float c[3];
+		for (int a = 0; a < 3; ++a) c[a] = (&o.fPosX)[a] + dPalm[a] + cf[a] * 0.01f + cu[a] * 0.02f;
+		LTVector vW[8];
+		for (int i = 0; i < 8; ++i)
+		{
+			const float sx = (i & 1) ? 1.0f : -1.0f, sy = (i & 2) ? 1.0f : -1.0f, sz = (i & 4) ? 1.0f : -1.0f;
+			float p[3];
+			for (int a = 0; a < 3; ++a) p[a] = c[a] + cr[a] * sx * hw + cu[a] * sy * hl + cf[a] * sz * hd;
+			vW[i] = TrackToWorld(s, p, vEye, vR, vU, vF);
+		}
+		static const float kBody[3] = { 0.20f, 0.20f, 0.23f }, kBrass[3] = { 0.72f, 0.56f, 0.24f };
+		VRPrims_SetSolidBox(vW, kBody, kBrass);
+	}
+
+	// --- the ammo on the gun -------------------------------------------------
+	// A small plate beside the gun on the side toward the face, a little above
+	// the hand, turned to the eyes. The wrist display's font and colours.
+	void UpdateGunAmmo(const VRSharedState& s, CWeaponModel* pWM, CPlayerStats* pStats, bool bShow)
+	{
+		static int s_nSaid = -1;
+		const VRHandState& g = s.Hands[1];
+		WEAPON* pW = pWM ? pWM->GetWeapon() : LTNULL;
+		AMMO* pA = pWM ? pWM->GetAmmo() : LTNULL;
+		const int nCat = pWM ? CategoryOf(pWM->GetWeaponId()) : CAT_NONE;
+		const bool bGun = pW && pA && !pW->bInfiniteAmmo && pW->nShotsPerClip > 0 && pA->eType != GADGET
+						  && (nCat == CAT_SIDEARM || nCat == CAT_LONG) && !pWM->IsDisabled();
+		const int nState = (!s_bGunAmmo || !bShow || !g.nActive || !pStats) ? 0 : bGun ? 2 : 1;
+		if (nState != s_nSaid)
+		{
+			s_nSaid = nState;
+			VRLog::Msg("VRGunAmmo: %s", nState == 2 ? "shown beside the gun" : nState == 1 ? "hidden - no gun with a clip in hand" : "off");
+		}
+		if (nState != 2) return;
+		LTVector vEye, vR, vU, vF;
+		if (!CameraFrame(vEye, vR, vU, vF)) return;
+		int nW = 0, nH = 0;
+		// ON THE GUN HAND'S CUFF, when her hands are drawn (VRHands.h); beside the gun otherwise.
+		const bool bCuff = VRHands_CuffReady();
+		HSURFACE hSurf = pStats->VRGunAmmoSurface(&nW, &nH, bCuff);
+		if (!hSurf || nW <= 0 || nH <= 0) return;
+		if (bCuff)
+		{
+			static const float kBlack[3] = { 0.0f, 0.0f, 0.0f }, kRed[3] = { 150.0f / 255.0f, 20.0f / 255.0f, 15.0f / 255.0f };
+			VRHands_CuffScreen(1, hSurf, nW, nH, (pWM->GetAmmoInClip() <= 0) ? kRed : kBlack);
+			return;
+		}
+		float cr[3], cu[3], cf[3];
+		HandAxes(g, cr, cu, cf);
+		// Toward the face: the gun hand's inner side (-right for the right hand).
+		const float fIn = VRShared::SwapHands() ? 1.0f : -1.0f;
+		const float fAbove = GetConsoleFloat("VRGunAmmoUp", 0.06f);
+		const float fSide  = GetConsoleFloat("VRGunAmmoSide", 0.045f);
+		const float fAhead = GetConsoleFloat("VRGunAmmoAhead", 0.02f);
+		const float fWide  = GetConsoleFloat("VRGunAmmoSize", 0.045f);
+		const float fTall  = fWide * (float)nH / (float)nW;
+		float dPalm[3]; VRShared::GunPalmShift(dPalm);
+		float c[3];
+		for (int a = 0; a < 3; ++a) c[a] = (&g.fPosX)[a] + dPalm[a] + cu[a] * fAbove + cr[a] * fIn * fSide + cf[a] * fAhead;
+		// Facing the eyes, upright: right = up x to-eye, then up = to-eye x right.
+		float n[3] = { s.fHeadPosX - c[0], s.fHeadPosY - c[1], s.fHeadPosZ - c[2] };
+		const float fL = Len3(n);
+		if (fL < 0.05f) return;
+		for (int a = 0; a < 3; ++a) n[a] /= fL;
+		float tr[3] = { n[2], 0.0f, -n[0] };			// the viewer's right: (-n) x world up
+		const float fR = Len3(tr);
+		if (fR < 0.05f) return;							// straight above or below the eyes
+		for (int a = 0; a < 3; ++a) tr[a] /= fR;
+		// The viewer's up: n x right (tracking space is right-handed, -z ahead).
+		float up[3] = { n[1] * tr[2] - n[2] * tr[1], n[2] * tr[0] - n[0] * tr[2], n[0] * tr[1] - n[1] * tr[0] };
+		if (up[1] < 0.0f) for (int a = 0; a < 3; ++a) up[a] = -up[a];
+		const float sx[4] = { -0.5f, 0.5f, 0.5f, -0.5f }, sy[4] = { 0.5f, 0.5f, -0.5f, -0.5f };
+		float p[3];
+		LTVector vW[4];
+		for (int k = 0; k < 4; ++k)
+		{
+			for (int a = 0; a < 3; ++a) p[a] = c[a] + tr[a] * sx[k] * fWide + up[a] * sy[k] * fTall;
+			vW[k] = TrackToWorld(s, p, vEye, vR, vU, vF);
+		}
+		VRPrims_SetSurfaceQuad(hSurf, vW, 1.0f);
 	}
 
 	// --- melee -------------------------------------------------------------
@@ -863,8 +1076,12 @@ namespace
 		LTVector vEye, vR, vU, vF;
 		if (!CameraFrame(vEye, vR, vU, vF)) return;
 		int nW = 0, nH = 0;
-		HSURFACE hSurf = pStats->VRWristSurface(&nW, &nH);
+		// ON THE OFF HAND'S CUFF, when her hands are drawn (VRHands.h): health and armor, and the
+		// ammo too unless the gun hand's cuff shows it. On the back of the wrist otherwise.
+		const bool bCuff = VRHands_CuffReady();
+		HSURFACE hSurf = pStats->VRWristSurface(&nW, &nH, !(bCuff && s_bGunAmmo), bCuff);
 		if (!hSurf || nW <= 0 || nH <= 0) return;
+		if (bCuff) { static const float kBlack[3] = { 0.0f, 0.0f, 0.0f }; VRHands_CuffScreen(0, hSurf, nW, nH, kBlack); return; }
 
 		float cr[3], cu[3], cf[3];
 		HandAxes(h, cr, cu, cf);
@@ -952,6 +1169,8 @@ void Idle()
 		s_h[h].bWorldValid = false;
 	}
 	s_bClipInHand = false;
+	s_bRacking = false;
+	s_fSlideBack = 0.0f;
 }
 
 void OnWorldEntered()
@@ -959,6 +1178,7 @@ void OnWorldEntered()
 	for (int i = 0; i < 256; ++i) { s_nClipMem[i] = -1; s_nClipMemAmmo[i] = -1; }
 	s_bClipMemInit = true;
 	s_hHitTarget = LTNULL;
+	s_bRanDry = s_bNeedRack = false;
 	Idle();
 }
 
@@ -981,6 +1201,7 @@ bool OnReloadCommand(CWeaponModel* pWM)
 	if (n > 0)
 	{
 		pWM->VRSetAmmoInClip(0);
+		s_bRanDry = false;		// one still in the chamber
 		VRLog::Msg("VRReload: reload button - clip EJECTED from the %s with %d rounds (they go back to the"
 			" pouches); now dry until a clip goes in", pWM->GetWeapon()->szName, n);
 		Buzz(1, 0.3f, 20.0f);
@@ -992,6 +1213,7 @@ bool OnReloadCommand(CWeaponModel* pWM)
 
 void OnClipRanOut(CWeaponModel* pWM)
 {
+	s_bRanDry = true;
 	VRLog::Msg("VRReload: the %s fired its clip empty - it drops; the next clip comes from the ammo pouch",
 		(pWM && pWM->GetWeapon()) ? pWM->GetWeapon()->szName : "?");
 	Buzz(1, 0.25f, 20.0f);
@@ -1053,6 +1275,22 @@ void Update(CGameClientShell* pShell, bool bRiding)
 		bUp[h] = !bGrip && s_h[h].bGripWas;
 		s_h[h].bGripWas = bGrip;
 		if (bUp[h]) s_h[h].bTaken = false;
+		// WHERE A GRIP CLOSED, in the body's frame (metres from the neck point:
+		// toward the gun hand, up, forward), so a headset run shows where the
+		// player's hands really go when they reach for a holster.
+		if (bDown[h] && hs.nActive && (s_bHolsters || s_bManual))
+		{
+			static int s_nSaidGrip = 0;
+			if (s_nSaidGrip++ < 300)
+			{
+				const float b = s_fBodyYawDeg * kD2R;
+				const float dx = hs.fPosX - s_vNeck[0], dy = hs.fPosY - s_vNeck[1], dz = hs.fPosZ - s_vNeck[2];
+				const float fRight = dx * (float)cos(b) - dz * (float)sin(b);
+				const float fFwd = -dx * (float)sin(b) - dz * (float)cos(b);
+				VRLog::Msg("VRHolster: %s hand gripped at %+.2f across, %+.2f up, %+.2f forward of the neck",
+					h ? "gun" : "off", fRight * GunSide(), dy, fFwd);
+			}
+		}
 	}
 
 	// Which slot each hand is in. A tick in the hand when it arrives, so a
@@ -1096,15 +1334,21 @@ void Update(CGameClientShell* pShell, bool bRiding)
 
 	// MANUAL RELOAD: the off hand and the pouch.
 	if (bAlive && !bRiding)
+	{
 		UpdateReload(s, pWM, pStats, bDown[0], bUp[0], nSlotOf[0], fSlotDist[0]);
+		UpdateRack(s, pWM, bDown[0], bUp[0]);
+		UpdateSlideState(s, pWM);
+		UpdateClipInHand(s, pWM);
+	}
 	else
-		s_bClipInHand = false;
+		s_bClipInHand = s_bRacking = false;
 
 	// SWING MELEE.
 	UpdateMelee(s, pWM, bRiding || !bAlive);
 
 	// THE WRIST DISPLAY.
 	UpdateWrist(s, pStats, bAlive);
+	UpdateGunAmmo(s, pWM, pStats, bAlive && !bRiding);
 
 	// THE SUNGLASSES, at the eyes.
 	UpdateGlasses(s, pWM, bAlive && !bRiding, bDown[1]);
@@ -1166,6 +1410,14 @@ void Update(CGameClientShell* pShell, bool bRiding)
 bool TwoHanded()
 {
 	return s_bTwoHand && s_bTwoHandOn;
+}
+
+float SlideBack() { return s_fSlideBack; }
+bool  MagOut()    { return s_bMagOut; }
+
+bool RackBlocksFire(CWeaponModel* pWM)
+{
+	return s_bNeedRack && s_bRack && pWM && pWM->GetWeaponId() == s_nRackWeapon && ManualReloadFor(pWM);
 }
 
 bool GlassesBlockFire(CWeaponModel* pWM)

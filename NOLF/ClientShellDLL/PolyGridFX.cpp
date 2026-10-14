@@ -470,7 +470,7 @@ void CPolyGridFX::UpdatePlasma()
     count = (uint8)m_fCount;
 
 	// HOW FAST IS THE WAVE REALLY ADVANCING? Retail's pool bounces at 0.55 Hz
-	// and ours at 0.16 - measured off the tester's two clips - and this is the only
+	// and ours at 0.16 - measured off his two clips - and this is the only
 	// clock in the thing. 50 counts a second through a 256-entry table holding
 	// three sine cycles is 0.586 Hz, so if the count is not advancing at 50 a
 	// second the frame time it is given is not what it thinks.

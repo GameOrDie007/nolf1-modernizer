@@ -31,7 +31,7 @@
 // no menu art. Presented by the host as a world-anchored quad.
 #define VRSHARED_OVLTEX_NAME	L"Local\\NOLFVR_OvlTex"
 #define VRSHARED_MAGIC		0x56464C4E		// 'NLFV'
-#define VRSHARED_VERSION	20		// 20: Game Or Die Hands (grip pose, touch)  19: host process id  18: recenter  17: haptics  16: the frame marker in memory  15: pause overlay  7: optical centres  8: exact pose  9: fov calibration  10: head-as-mouse  11: body yaw  12: per-eye frustum  13: shared eye texture  14: thumbstick axes
+#define VRSHARED_VERSION	22		// 22: the menu pointer  21: the headset refresh rate  20: Game Or Die Hands (grip pose, touch)  19: host process id  18: recenter  17: haptics  16: the frame marker in memory  15: pause overlay  7: optical centres  8: exact pose  9: fov calibration  10: head-as-mouse  11: body yaw  12: per-eye frustum  13: shared eye texture  14: thumbstick axes
 
 // Bits packed into VRHandState::nButtons. These belong to the contract, not
 // to either process: the host sets them and the client reads them. They lived
@@ -641,7 +641,7 @@ struct VRHandState
 	uint32_t	nButtons;
 
 	// Thumbstick, -1..+1, X right and Y up. Added in version 14: without an
-	// analog stick there was no way to walk, and the player could not reach a
+	// analog stick there was no way to walk, and the owner could not reach a
 	// keyboard. The reserved space this struct's comment promised is what
 	// made it a version bump rather than a redesign.
 	float		fStickX, fStickY;
@@ -887,7 +887,7 @@ struct VRSharedState
 	// host every frame, and that read waited behind the host's copy out of
 	// the shared texture, which waited on the GPU for the game's release of
 	// its mutex, which waited behind the host - 82-148 ms holds every two
-	// to three seconds in a host log, every one in the "marker" step.
+	// to three seconds in the tester's host log, every one in the "marker" step.
 	// So the number rides here instead. nMarkerPainted: the client, when it
 	// paints. nEyeTexMarker: the renderer, when it publishes the eye texture
 	// that carries that paint, written before nEyeTexSerial. The swatches
@@ -934,6 +934,21 @@ struct VRSharedState
 	float		fAimToGrip[2][7];
 	uint32_t	nGripValid[2];
 	uint32_t	nTouch[2];
+
+	// The headset's refresh rate, Hz, from the runtime's frame timing (0 until
+	// known). The game's time runs at 90 frames a second, so above that each
+	// game frame is shown unevenly and the client tells the player.
+	float		fDisplayHz;
+
+	// THE MENU POINTER (v22). Where each hand's aim ray meets the menu panel the
+	// host is showing, worked out by the host (it alone knows where the panel
+	// is): nPointer 0 for no hit, 1 for the menu panel (fPointer is then a
+	// fraction of the LEFT EYE's picture, x right, y down), 2 for the pause
+	// panel (a fraction of the pause overlay). Indexed like Hands[], and swapped
+	// with them for the Leftorium. The renderer turns a fraction back into the
+	// game's menu coordinates (R2D_PointerToCanvas).
+	uint32_t	nPointer[2];
+	float		fPointer[2][2];
 };
 
 #define VRTOUCH_TRIGGER	(1u << 0)
@@ -946,7 +961,7 @@ struct VRSharedState
 // processes would silently read each other's fields at the wrong offsets.
 #ifdef __cplusplus
 static_assert(sizeof(VRHandState) == 48, "VRHandState layout changed");
-static_assert(sizeof(VRSharedState) == 452, "VRSharedState layout changed");
+static_assert(sizeof(VRSharedState) == 480, "VRSharedState layout changed");
 #endif
 
 
@@ -965,7 +980,7 @@ namespace VRShared
 
 	// True while the host has updated within the last second. Going false is
 	// how the client falls back to a static camera rather than freezing on a
-	// stale pose (a project rule).
+	// stale pose (hard rule #3).
 	bool	IsLive();
 
 	// True once the host PROCESS has exited (block v19). Checked at most
@@ -979,6 +994,19 @@ namespace VRShared
 	// hand is a mirror image, and its right-side offsets change sign.
 	void	SetSwapHands(bool bSwap);
 	bool	SwapHands();
+
+	// THE GUN AT THE PALM. The gun hand's palm (the runtime's grip pose)
+	// relative to its controller position, in tracking space, metres: add it
+	// to Hands[1]'s position wherever the GUN is placed from the hand. The
+	// controller position is the aim pose, which sits in front of the palm
+	// (on a Quest 3, 9.5 cm ahead and 3 cm up), so a gun placed there floated
+	// ahead of Cate's hand, which is drawn at the palm. The direction is not
+	// touched: each gun's angle was tuned to the aim pose. Zero with no palm
+	// from the runtime, or VRGunAtPalm 0.
+	void	GunPalmShift(float d[3]);
+	// The same for either hand (0 the off hand, 1 the gun hand), whatever
+	// VRGunAtPalm says: where that hand's palm is.
+	void	PalmShift(int nHand, float d[3]);
 	// The Steam Frame's native profile is bound (VRBTN_FRAME on either hand).
 	bool	FrameLayout();
 	// The Frame's D-pad (always the physical left controller's), for menus.

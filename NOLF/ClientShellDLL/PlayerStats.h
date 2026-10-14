@@ -147,10 +147,14 @@ public:
 	// False when the reticle has not shown a usable object in the last
 	// quarter of a second.
 	LTBOOL		VRReticleActivateRay(LTVector & vFrom, LTVector & vDir, LTFLOAT & fDistAway);
+	// The same for the GADGET reticle: the object the gadget in hand can be
+	// used on, as last drawn, and the ray it was drawn from.
+	LTBOOL		VRReticleGadgetRay(LTVector & vFrom, LTVector & vDir, HOBJECT & hObj);
 	// PHYSICAL PLAY'S WRIST DISPLAY: health, armor and the clip drawn with the
 	// HUD's own icons and font into a small surface of its own, redrawn only
 	// when a number changes. LTNULL before the HUD art is loaded.
-	HSURFACE	VRWristSurface(int* pnW, int* pnH);
+	HSURFACE	VRWristSurface(int* pnW, int* pnH, bool bAmmoRow = true, bool bCuff = false);
+	HSURFACE	VRGunAmmoSurface(int* pnW, int* pnH, bool bCuff = false);
 protected:
 	void		VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistAway);
 	HOBJECT		m_hVRRetObj;
@@ -158,6 +162,8 @@ protected:
 	LTVector	m_vVRRetDir;
 	LTFLOAT		m_fVRRetDist;
 	LTFLOAT		m_fVRRetTime;
+	HOBJECT		m_hVRGadObj;
+	LTFLOAT		m_fVRGadTime;
 	LTBOOL		DrawActivateCrosshair(HOBJECT hObj, HSURFACE hScreen, int nCenterX, int nCenterY, 
 		uint32 dwInitialUsrFlags, LTFLOAT fDistAway);
 
@@ -273,6 +279,8 @@ protected:
 	char		m_szVRAmmo[24];
 	HSURFACE	m_hVRWrist;			// the wrist display (VRWristSurface)
 	char		m_szVRWrist[48];
+	HSURFACE	m_hVRGunAmmo;		// the ammo on the gun (VRGunAmmoSurface)
+	char		m_szVRGunAmmo[32];
 	HSURFACE	m_hAmmoFull;
 	HSURFACE	m_hAmmoEmpty;
     LTIntPt      m_AmmoSz;

@@ -253,6 +253,7 @@ CPlayerObj::CPlayerObj() : CCharacter()
 	m_bReadyToExit = LTFALSE;
 
 	m_bForceDuck = LTFALSE;
+	m_bVRDuck = LTFALSE;
 	m_bRespawnCalled = LTFALSE;
 
 	m_vLastClientPos.Init();
@@ -1275,7 +1276,7 @@ void CPlayerObj::UpdateCommands()
 	{
 		m_Animator.SetMain(CAnimatorPlayer::eSnowmobile);
 	}
-    else if ( m_nMotionStatus != MS_NONE && !g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK) )
+    else if ( m_nMotionStatus != MS_NONE && !g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK) && !m_bVRDuck )
 	{
 		// Only do jumping stuff if we're not ducking
 
@@ -1314,7 +1315,7 @@ void CPlayerObj::UpdateCommands()
 
         if (!m_bBodyOnLadder && !m_bSpectatorMode && !IsLiquid(m_eContainerCode))
         {
-            if (g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK) || m_bForceDuck)
+            if (g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK) || m_bForceDuck || m_bVRDuck)
 		    {
 				m_Animator.SetMovement(CAnimatorPlayer::eCrouching);
 		    }
@@ -1386,7 +1387,7 @@ void CPlayerObj::UpdateCommands()
 		{
 			m_Animator.SetMain(CAnimatorPlayer::eClimbingUp);
 		}
-        else if (g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_REVERSE) || g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK))
+        else if (g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_REVERSE) || g_pLTServer->IsCommandOn(m_hClient, COMMAND_ID_DUCK) || m_bVRDuck)
 		{
 			m_Animator.SetMain(CAnimatorPlayer::eClimbingDown);
 		}
@@ -4648,6 +4649,12 @@ void CPlayerObj::HandleClientMsg(HMESSAGEREAD hRead)
 		case CP_WEAPON_STATUS :
 		{
             m_nWeaponStatus = g_pLTServer->ReadFromMessageByte(hRead);
+		}
+		break;
+
+		case CP_VRDUCK :
+		{
+			m_bVRDuck = (g_pLTServer->ReadFromMessageByte(hRead) != 0) ? LTTRUE : LTFALSE;
 		}
 		break;
 

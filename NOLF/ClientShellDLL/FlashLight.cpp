@@ -225,14 +225,14 @@ void CFlashLight::CreateLight()
 	// 0.80. Started at 1.0, went to 0.65 when the headset found it too big, and
 	// 0.65 then read as slightly too small - so the answer is between them and this
 	// is the midpoint. A taste number either way; it is a cvar so disagreeing
-	// with it costs the player one console line, not a rebuild.
+	// with it costs him one console line, not a rebuild.
 	//
 	// Why it was ever 1.0: the asset is
 	// authored for an AI's fist at world scale - 11.81 units long and 6.65
 	// across, which at this project's measured 16.92 mm per unit is a 200 mm
-	// torch 113 mm THICK. That is a lantern, and it is 40 cm from the player's eye.
-	// 0.65 makes it 130 mm by 73 mm, which is a torch. Still the player's call: this is
-	// a taste number, and it is a cvar so it costs the player nothing to disagree.
+	// torch 113 mm THICK. That is a lantern, and it is 40 cm from his eye.
+	// 0.65 makes it 130 mm by 73 mm, which is a torch. Still his call: this is
+	// a taste number, and it is a cvar so it costs him nothing to disagree.
     g_cvarVRTorchScale.Init(g_pLTClient, "VRTorchScale", LTNULL, 0.80f);
 	// Units to lower the drawn torch from the hand position this code computes,
 	// along the PLAYER's up. See the note where it is applied.
@@ -286,13 +286,13 @@ void CFlashLight::CreateModel()
 	//
 	// This model does not need any of it. GetLightPositions already produces a
 	// WORLD position for the hand, and headset testing has confirmed that
-	// the beam follows the player's left controller from it. So the torch is an
+	// the beam follows his left controller from it. So the torch is an
 	// ordinary world object placed at an already-verified world point, and
 	// there is no rebase, no fK, and nothing for the camera-space rules to get
 	// wrong. It also means the torch occludes against the world correctly,
 	// which a REALLYCLOSE object does not.
 	//
-	// The cost is that it can clip into a wall the player pushes a hand through.
+	// The cost is that it can clip into a wall he pushes his hand through.
 	// That is the right trade in VR, where a gun that passes through geometry
 	// reads as more wrong than one that does not.
 	createStruct.m_Flags = FLAG_VISIBLE | FLAG_SHADOW;
@@ -365,9 +365,9 @@ void CFlashLight::UpdateModel()
 
 	// THE GRIP GOES IN THE HAND. The first version hung the model BACKWARDS by
 	// its own lamp offset, so the 'Flash' socket landed exactly on the beam's
-	// origin - which is tidy, and wrong, because the beam's origin IS the player's hand.
-	// It put the lamp in the player's palm and the whole 200 mm body out behind the player's
-	// wrist. the torch was not connected 1:1
+	// origin - which is tidy, and wrong, because the beam's origin IS his hand.
+	// It put the lamp in his palm and the whole 200 mm body out behind his
+	// wrist. Headset testing, 19 September: the torch was not connected 1:1
 	// with the hand. It was not being held at all; it was hanging off the back of it.
 	//
 	// The model's own origin sits in the grip (the mesh runs -3.14 to +8.67
@@ -687,11 +687,11 @@ void CFlashLightPlayer::GetLightPositions(LTVector& vStartPos, LTVector& vEndPos
 
 	// ---- THE TORCH GOES ON THE LEFT HAND ----------------------------------
 	//
-	// the flashlight was a beam from the chest
+	// Headset testing, 19 September: the flashlight was a beam from the chest
 	// of the character, not following the left controller. It never did: above, the
 	// first-person branch takes the beam's position AND rotation straight off
 	// the camera, then FLBeamUOffset (-10) drops it ten units below the eye.
-	// That is the beam from below the player's face. There is no hand anywhere in this
+	// That is the beam from below his face. There is no hand anywhere in this
 	// file and there never was, so this is new work rather than a repair -
 	// which is worth saying, because it was reported as a regression.
 	//
@@ -783,11 +783,11 @@ void CFlashLightPlayer::GetLightPositions(LTVector& vStartPos, LTVector& vEndPos
 
 				// LOWERED IN THE PLAYER'S OWN UP, NOT THE TORCH'S.
 				//
-				// the torch sat about 3 inches
+				// Headset testing, 19 September: the torch sat about 3 inches
 				// above where the real hand was - while the log said the
 				// grip was 0.0 units off the hand. Both are true: it is exactly
 				// on the hand this code COMPUTES, and that is about 3 inches
-				// above the player's real one. The drawn torch is the first thing this
+				// above his real one. The drawn torch is the first thing this
 				// project has had that makes the hand position visible, so it
 				// is the first time the gap could be seen at all.
 				//
@@ -797,9 +797,9 @@ void CFlashLightPlayer::GetLightPositions(LTVector& vStartPos, LTVector& vEndPos
 				//
 				// Applied along the CAMERA's up rather than the torch's,
 				// deliberately. This corrects an error in a world position, so
-				// it must not turn with the player's wrist - VRTorchOffU does turn with
+				// it must not turn with his wrist - VRTorchOffU does turn with
 				// it, because that one is for seating the model in the grip.
-				// 4.5 units is the requested three inches at 16.92 mm per unit.
+				// 4.5 units is his three inches at 16.92 mm per unit.
 				m_vVRTorchPos = vStartPos - vCU * g_cvarVRTorchDrop.GetFloat();
 				m_bVRTorch = LTTRUE;
 			}

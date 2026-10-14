@@ -27,6 +27,7 @@ protected:
 	CLTGUITextItemCtrl* m_pResumeCtrl;
 	CLTGUITextItemCtrl* m_pSaveCtrl;
 	CLTGUITextItemCtrl* m_pLoadCtrl;
+	CLTGUITextItemCtrl* m_pBookCtrl;
 
 };
 

@@ -20,6 +20,14 @@ struct VRModelFrame;
 // view weapon's own mirrored support hand while ours are drawn.
 bool VRHands_On();
 
+// THE CUFFS' SCREENS. Each glove ends in an open cuff; its flat end is a screen. A display
+// handed in here (0 the off hand, 1 the gun hand) is drawn on it this frame, upright to the
+// eyes and fading in as the cuff turns toward them, placed with the hand itself so it cannot
+// trail it. True when the hands are drawn and their cuffs were found (else place it yourself).
+bool VRHands_CuffReady();
+// pDiscRGB: the cuff's disc colour behind it (0..1), the surface's own background.
+void VRHands_CuffScreen(int nHand, HSURFACE hSurf, int nW, int nH, const float* pDiscRGB);
+
 // Once a frame, from the model publish, after the frame is complete and before it is handed over.
 //   nViewInst       the view weapon's index in f.inst, or -1
 //   hViewWeapon     the view weapon object (for its node names), or LTNULL

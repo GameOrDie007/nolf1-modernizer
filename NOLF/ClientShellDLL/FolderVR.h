@@ -2,7 +2,7 @@
 //
 // Everything on it is a cvar this port already had. They were reachable only
 // by typing them on a command line, which meant that in practice nobody
-// changed any of them - requested in a VR
+// changed any of them - requested in headset testing, 8 September: a VR
 // options page on the pause menu, with a head bob toggle.
 //
 // Labels are literal strings rather than IDS_ ids on purpose: the menu text
@@ -70,6 +70,10 @@ protected:
 	LTBOOL	m_bGlassesToFace;	// VRGlassesToFace
 	LTBOOL	m_bThrowByHand;		// VRThrowByHand
 	LTBOOL	m_bTwoHanded;		// VRTwoHanded
+	LTBOOL	m_bRackSlide;		// VRRackSlide
+	LTBOOL	m_bRoomScale;		// VRRoomScale
+	LTBOOL	m_bWallFade;		// VRWallFade
+	LTBOOL	m_bAmmoOnGun;		// VRAmmoOnGun
 	int		m_nPhysPreset;		// 0 buttons, 1 physical, 2 custom (shown only)
 
 	// CONTROLS (FOLDER_ID_VR_CONTROLS only)
@@ -94,6 +98,9 @@ protected:
 	int		m_nGunScale;		// tenths
 	int		m_nHandTravel;		// units per metre of real hand movement
 	LTBOOL	m_bRumble;			// VRHaptics: the controllers buzz on firing and on being hit
+	LTBOOL	m_bMatchRefresh;	// VRMatchRefresh: run at the headset's refresh rate, next launch
+	int		m_nRumbleStrength;	// VRHapticsStrength: percent of the game's own pulses
+	int		m_nGunPos[3];		// VRGunPosForward/Up/Right + 10: the player's nudge, cm
 	LTBOOL	m_bCateHands;		// VRCateHands: Cate's own articulated hands (VRHands.cpp)
 	int		m_nHandsOutfit;		// VRHandsOutfit: 0 painted, 1 Action .. 5 Winter (VRHands.cpp)
 
@@ -113,8 +120,12 @@ protected:
 	// THE PICTURE
 	LTBOOL	m_bBigMenuText;
 	LTBOOL	m_bShowBody;
+	LTBOOL	m_bRealCrouch;		// VRRealCrouch: the head going down crouches the body
 	LTBOOL	m_bMirrorBody;		// the player's body in mirrors, next launch
 	int		m_nResolution;		// percent of the headset's size, next launch
+	int		m_nResIdx;			// the Resolution row's step: 0 = 60%, each step 5% more
+	int		m_nMenuSize;		// the menu screen's width, percent of 3.2 m, next launch
+	int		m_nMenuDist;		// the menu screen's distance, cm, next launch
 	LTBOOL	m_bSpectator;		// the steadied desktop view, next launch
 };
 

@@ -76,7 +76,7 @@ class CMuzzleFlashFX : public CSpecialFX
 		// wherever the player is standing, and the eye-centred sphere that
 		// gathers sprites can never reach it. The view weapon is already
 		// added explicitly for exactly this reason (see nViewWeapon); its
-		// flash needs the same. the muzzle
+		// flash needs the same. Headset testing, 11 September: the muzzle
 		// flash was not attached to the gun.
 		HLOCALOBJ VRGetScaleObject() const { return m_Scale.GetObject(); }
 		LTBOOL    VRUsingScale()     const { return m_bUsingScale; }

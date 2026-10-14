@@ -29,6 +29,7 @@
 #include "BankedList.h"
 #include "SDL.h"
 #include "VRWalk.h"
+#include "VRRoom.h"
 #include "VRLog.h"
 
 #define SPECTATOR_ACCELERATION			100000.0f
@@ -1918,6 +1919,18 @@ void CMoveMgr::MoveLocalSolidObject()
 		g_pLTClient->GetObjectPos(m_hObject, &curPos);
 		newPos = curPos + info.m_Offset;
 		pPhysics->MoveObject(m_hObject, &newPos, 0);
+	}
+
+	// ROOM-SCALE: the body walks where the player walked (VRRoom.h). Only in
+	// single player, playing, in the player's own first-person view, on foot
+	// and alive: the head is local, and a move made from it would desync a
+	// netgame, a cinematic or a vehicle.
+	{
+		const bool bAllowed = g_pGameClientShell->GetGameType() == SINGLE
+			&& g_pGameClientShell->IsFirstPerson() && !g_pGameClientShell->IsUsingExternalCamera()
+			&& !g_pGameClientShell->IsPlayerDead() && g_pInterfaceMgr->GetGameState() == GS_PLAYING
+			&& g_pInterfaceMgr->AllowCameraMovement() && !m_pVehicleMgr->IsVehiclePhysics();
+		VRRoom::Step(m_hObject, g_pGameClientShell->GetYaw(), bAllowed);
 	}
 
 	pPhysics->SetGlobalForce(vOldGlobalForce);

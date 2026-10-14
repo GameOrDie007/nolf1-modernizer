@@ -237,6 +237,8 @@ CPlayerStats::CPlayerStats()
 	m_hVRRetObj		= LTNULL;
 	m_fVRRetDist	= 0.0f;
 	m_fVRRetTime	= -1000.0f;
+	m_hVRGadObj		= LTNULL;
+	m_fVRGadTime	= -1000.0f;
 
     m_hHUDHealth = LTNULL;
     m_hHealthIcon = LTNULL;
@@ -257,6 +259,8 @@ CPlayerStats::CPlayerStats()
     m_szVRAmmo[0] = 0;
     m_hVRWrist = LTNULL;
     m_szVRWrist[0] = 0;
+	m_hVRGunAmmo = LTNULL;
+	m_szVRGunAmmo[0] = 0;
     m_hAmmoFull = LTNULL;
     m_hAmmoEmpty = LTNULL;
 	m_AmmoSz = nullPt;
@@ -2869,6 +2873,9 @@ void CPlayerStats::DestroyAmmoSurfaces()
         g_pLTClient->DeleteSurface (m_hVRWrist);
     m_hVRWrist = LTNULL;
 	m_szVRWrist[0] = 0;
+	if (m_hVRGunAmmo)
+		g_pLTClient->DeleteSurface(m_hVRGunAmmo);
+	m_hVRGunAmmo = LTNULL;
 
 	if (m_hAmmoFull)
         g_pLTClient->DeleteSurface (m_hAmmoFull);
@@ -3516,6 +3523,7 @@ void CPlayerStats::DrawCrosshair(HSURFACE hScreen, int nCenterX,
 
 	HOBJECT hObj = TestForActivationObject(dwUsrflgs, fDistAway);
 	m_hVRRetObj = LTNULL;
+	m_hVRGadObj = LTNULL;
 	if (hObj) VRNoteReticle(hObj, dwUsrflgs, fDistAway);
 	if (hObj)
 	{
@@ -3955,16 +3963,32 @@ void CPlayerStats::DrawSurfaceCrosshair(HSURFACE hSurf, HSURFACE hScreen,
 
 void CPlayerStats::VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistAway)
 {
-	// The decision DrawActivateCrosshair makes for the plain activate
-	// reticle: an object that is not a character, carries USRFLG_CAN_ACTIVATE
-	// and is within c_ActivationDist. Gadget targets are left out - a gadget
-	// is used by firing it, not by pressing use.
+	// The decisions DrawActivateCrosshair makes. A GADGET target within the
+	// gadget's range is noted on its own: a gadget is used by firing it, and
+	// the fire follows this reticle (CWeaponModel::GetFireInfo). Anything
+	// else that carries USRFLG_CAN_ACTIVATE within c_ActivationDist is a use
+	// target, people included: a character that can be talked to shows the
+	// activate reticle, and Use has to talk to the one it is on.
 	if (!hObj || IsMainWorld(hObj)) return;
 	uint32 dwUser = 0;
 	g_pLTClient->GetObjectUserFlags(hObj, &dwUser);
 	dwUser |= dwUsrFlags;
-	if ((dwUser & USRFLG_CHARACTER) || !(dwUser & USRFLG_CAN_ACTIVATE)) return;
-	if (IsGadgetActivatable(hObj) || fDistAway > c_ActivationDist) return;
+	if (IsGadgetActivatable(hObj))
+	{
+		WEAPON* pGW = g_pWeaponMgr->GetWeapon(m_nCurrentWeapon);
+		if (!pGW || fDistAway > (LTFLOAT)pGW->nRange) return;
+		static HOBJECT s_hSaidGad = LTNULL;
+		if (hObj != s_hSaidGad)
+		{
+			s_hSaidGad = hObj;
+			VRLog::Msg("Reticle: the gadget can be used on an object %.0f away, along (%+.2f %+.2f %+.2f)",
+				fDistAway, m_vVRRetDir.x, m_vVRRetDir.y, m_vVRRetDir.z);
+		}
+		m_hVRGadObj  = hObj;
+		m_fVRGadTime = g_pLTClient->GetTime();
+		return;
+	}
+	if (!(dwUser & USRFLG_CAN_ACTIVATE) || fDistAway > c_ActivationDist) return;
 
 	// The ray TestForActivationObject just cast (m_vVRRetFrom/Dir, set
 	// there): the head's view in a headset, the camera otherwise.
@@ -3974,8 +3998,9 @@ void CPlayerStats::VRNoteReticle(HOBJECT hObj, uint32 dwUsrFlags, LTFLOAT fDistA
 	if (hObj != s_hSaid)
 	{
 		s_hSaid = hObj;
-		VRLog::Msg("Reticle: green on a usable object %.0f away, camera ray from"
-			" (%.0f %.0f %.0f) along (%+.2f %+.2f %+.2f)", fDistAway,
+		VRLog::Msg("Reticle: green on a usable %s %.0f away, camera ray from"
+			" (%.0f %.0f %.0f) along (%+.2f %+.2f %+.2f)",
+			(dwUser & USRFLG_CHARACTER) ? "character" : "object", fDistAway,
 			m_vVRRetFrom.x, m_vVRRetFrom.y, m_vVRRetFrom.z, vF.x, vF.y, vF.z);
 	}
 	m_hVRRetObj  = hObj;
@@ -3991,6 +4016,17 @@ LTBOOL CPlayerStats::VRReticleActivateRay(LTVector & vFrom, LTVector & vDir, LTF
 	vFrom = m_vVRRetFrom;
 	vDir = m_vVRRetDir;
 	fDistAway = m_fVRRetDist;
+	return LTTRUE;
+}
+
+LTBOOL CPlayerStats::VRReticleGadgetRay(LTVector & vFrom, LTVector & vDir, HOBJECT & hObj)
+{
+	if (!m_hVRGadObj) return LTFALSE;
+	const LTFLOAT fAge = g_pLTClient->GetTime() - m_fVRGadTime;
+	if (fAge < 0.0f || fAge > 0.25f) return LTFALSE;
+	vFrom = m_vVRRetFrom;
+	vDir  = m_vVRRetDir;
+	hObj  = m_hVRGadObj;
 	return LTTRUE;
 }
 
@@ -4719,13 +4755,17 @@ void CPlayerStats::DrawTargetName()
 //
 // ----------------------------------------------------------------------- //
 
-HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH)
+HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH, bool bAmmoRow, bool bCuff)
 {
 	if (!g_pForeFont || !g_pLTClient || !g_pOptimizedRenderer) return LTNULL;
 	const int nFH = (int)g_pForeFont->GetHeight();
 	const int nRow = nFH + 8;
-	const int nW = 8 + nFH + 8 + 7 * nFH / 2 + 8;
-	const int nH = 3 * nRow + 8;
+	// On a glove's cuff (bCuff) only the icons and numbers, on the cuff's black disc:
+	// no plate, no rim, and only as wide as "100" when the ammo row is not there.
+	const int nW = 8 + nFH + 8 + ((bCuff && !bAmmoRow) ? 2 * nFH : 7 * nFH / 2) + 8;
+	// Two rows when the ammo is on the gun hand's cuff: health and armor.
+	const int nRows = bAmmoRow ? 3 : 2;
+	const int nH = nRows * nRow + 8;
 
 	CWeaponModel* pWM = g_pGameClientShell ? g_pGameClientShell->GetWeaponModel() : LTNULL;
 	WEAPON* pW = (pWM && g_pWeaponMgr) ? g_pWeaponMgr->GetWeapon(m_nCurrentWeapon) : LTNULL;
@@ -4737,7 +4777,7 @@ HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH)
 		sprintf(szAmmo, "%d/%d", nClip, nRest < 0 ? 0 : nRest);
 	}
 	char szKey[48];
-	sprintf(szKey, "%u|%u|%s|%dx%d", m_nHealth, m_nArmor, szAmmo, nW, nH);
+	sprintf(szKey, "%u|%u|%s|%dx%d|%d", m_nHealth, m_nArmor, szAmmo, nW, nH, bCuff ? 1 : 0);
 
 	if (m_hVRWrist && !strcmp(szKey, m_szVRWrist))
 	{
@@ -4757,14 +4797,14 @@ HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH)
 	// The plate: black (the font leaves its glyph cells black, so anything
 	// else shows boxes behind the digits), with a thin grey rim.
 	LTRect rcAll(0, 0, nW, nH);
-	g_pOptimizedRenderer->FillRect(m_hVRWrist, &rcAll, SETRGB(70, 78, 92));
+	g_pOptimizedRenderer->FillRect(m_hVRWrist, &rcAll, bCuff ? SETRGB(0, 0, 0) : SETRGB(70, 78, 92));
 	LTRect rcIn(2, 2, nW - 2, nH - 2);
 	g_pOptimizedRenderer->FillRect(m_hVRWrist, &rcIn, SETRGB(0, 0, 0));	// the font's own glyph cells are black
 
 	char sz[24];
 	const int xText = 8 + nFH + 8;
 	HSURFACE hIcons[3] = { m_hHealthIcon, m_hArmorIcon, m_hAmmoIcon };
-	for (int r = 0; r < 3; ++r)
+	for (int r = 0; r < nRows; ++r)
 	{
 		const int y = 6 + r * nRow;
 		if (hIcons[r])
@@ -4793,4 +4833,66 @@ HSURFACE CPlayerStats::VRWristSurface(int* pnW, int* pnH)
 	if (pnW) *pnW = nW;
 	if (pnH) *pnH = nH;
 	return m_hVRWrist;
+}
+
+// ----------------------------------------------------------------------- //
+//
+//	ROUTINE:	CPlayerStats::VRGunAmmoSurface()
+//
+//	PURPOSE:	THE AMMO ON THE GUN (VRPhysical.cpp places it beside the gun):
+//				the clip over what is left, in the HUD font on the wrist
+//				display's dark plate. Redrawn only when a number changes.
+//
+// ----------------------------------------------------------------------- //
+
+HSURFACE CPlayerStats::VRGunAmmoSurface(int* pnW, int* pnH, bool bCuff)
+{
+	if (!g_pForeFont || !g_pLTClient || !g_pOptimizedRenderer) return LTNULL;
+	CWeaponModel* pWM = g_pGameClientShell ? g_pGameClientShell->GetWeaponModel() : LTNULL;
+	WEAPON* pW = (pWM && g_pWeaponMgr) ? g_pWeaponMgr->GetWeapon(m_nCurrentWeapon) : LTNULL;
+	if (!pW || !pWM || pW->bInfiniteAmmo || !m_pnAmmo || m_nCurrentAmmo >= g_pWeaponMgr->GetNumAmmoTypes())
+		return LTNULL;
+	const int nClip = pWM->GetAmmoInClip();
+	int nRest = m_pnAmmo[m_nCurrentAmmo] - nClip;
+	if (nRest < 0) nRest = 0;
+	char sz[24];
+	sprintf(sz, "%d/%d", nClip, nRest);
+	const int nFH = (int)g_pForeFont->GetHeight();
+	const int nW = 8 + 7 * nFH / 2 + 8;
+	const int nH = nFH + 12;
+	char szKey[32];
+	sprintf(szKey, "%s|%dx%d|%d", sz, nW, nH, bCuff ? 1 : 0);
+	if (m_hVRGunAmmo && !strcmp(szKey, m_szVRGunAmmo))
+	{
+		if (pnW) *pnW = nW;
+		if (pnH) *pnH = nH;
+		return m_hVRGunAmmo;
+	}
+	uint32 nOldW = 0, nOldH = 0;
+	if (m_hVRGunAmmo) g_pLTClient->GetSurfaceDims(m_hVRGunAmmo, &nOldW, &nOldH);
+	if (!m_hVRGunAmmo || (int)nOldW != nW || (int)nOldH != nH)
+	{
+		if (m_hVRGunAmmo) g_pLTClient->DeleteSurface(m_hVRGunAmmo);
+		m_hVRGunAmmo = g_pLTClient->CreateSurface(nW, nH);
+		if (!m_hVRGunAmmo) return LTNULL;
+	}
+	LTRect rcAll(0, 0, nW, nH);
+	// On a glove's cuff (bCuff): no rim, the plate the cuff's disc colour (black, red when empty).
+	g_pOptimizedRenderer->FillRect(m_hVRGunAmmo, &rcAll, !bCuff ? SETRGB(70, 78, 92) : (nClip <= 0) ? SETRGB(150, 20, 15) : SETRGB(0, 0, 0));
+	// An empty clip on a red plate, so a dry gun reads at a glance. The plate,
+	// not the digits: the HUD font draws its own colour whatever it is given.
+	LTRect rcIn(2, 2, nW - 2, nH - 2);
+	g_pOptimizedRenderer->FillRect(m_hVRGunAmmo, &rcIn, (nClip <= 0) ? SETRGB(150, 20, 15) : SETRGB(0, 0, 0));
+	const HLTCOLOR hInk = (hAmmoTint ? hAmmoTint : kWhite);
+	g_pForeFont->Draw(sz, m_hVRGunAmmo, nW / 2 + 1, 7, LTF_JUSTIFY_CENTER, SETRGB(8, 8, 8));
+	g_pForeFont->Draw(sz, m_hVRGunAmmo, nW / 2, 6, LTF_JUSTIFY_CENTER, hInk);
+	strcpy(m_szVRGunAmmo, szKey);
+	{
+		static int s_nSaid = 0;
+		if (s_nSaid++ < 20)
+			VRLog::Msg("VRGunAmmo: redrawn %dx%d - %s", nW, nH, sz);
+	}
+	if (pnW) *pnW = nW;
+	if (pnH) *pnH = nH;
+	return m_hVRGunAmmo;
 }

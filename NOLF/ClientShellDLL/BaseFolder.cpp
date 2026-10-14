@@ -39,7 +39,7 @@ static int VRPageStep(int nHeight)
 	// layout-space charge is the pixel height over N - the height the
 	// original sheet would have cost. Charging the raw pixels made every
 	// folder paginate at 4x: the briefing card drew 3 of its 4 items and the
-	// paragraph was the one dropped (the mission
+	// paragraph was the one dropped (headset testing, 13 September: the mission
 	// briefing was broken; the log said "drew 3 of 4 <- DROPPED" on
 	// 54 folders in one run). The HD-large rule below is for the sheet the
 	// scaled sheets replaced, and must not stack on top of this.

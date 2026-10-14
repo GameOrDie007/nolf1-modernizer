@@ -21,6 +21,7 @@
 #include "GameSettings.h"
 #include "VRShared.h"
 #include "VRBinds.h"
+#include "VRLog.h"
 
 bool VRDebugToolsBuilt();		// GameClientShell.cpp: is VR_DEBUG_TOOLS compiled in?
 
@@ -34,6 +35,8 @@ namespace
 
 	const uint32 CMD_VR_RECENTER   = FOLDER_CMD_CUSTOM + 1;
 	const uint32 CMD_VR_BIND_RESET = FOLDER_CMD_CUSTOM + 2;
+	const uint32 CMD_VR_STYLE_PHYS = FOLDER_CMD_CUSTOM + 3;
+	const uint32 CMD_VR_STYLE_BTNS = FOLDER_CMD_CUSTOM + 4;
 	const uint32 CMD_VR_PAGE       = FOLDER_CMD_CUSTOM + 10;	// + page index
 }
 
@@ -42,7 +45,7 @@ CFolderVR::CFolderVR()
 	m_nHeadBob     = 0;
 	m_nWeaponSway  = 0;
 	m_bSnapTurn    = LTFALSE;
-	m_nTurnRate    = 3;
+	m_nTurnRate    = 120;
 	m_bSteerHands  = LTTRUE;
 	m_bLeftorium   = LTFALSE;
 	m_bSwapSticks  = LTFALSE;
@@ -50,6 +53,9 @@ CFolderVR::CFolderVR()
 	m_bAnalogWalk  = LTFALSE;
 	m_bGunAtHand   = LTTRUE;
 	m_bRumble      = LTTRUE;
+	m_nRumbleStrength = 100;
+	m_bMatchRefresh = LTFALSE;
+	m_nGunPos[0] = m_nGunPos[1] = m_nGunPos[2] = 10;
 	m_bCateHands   = LTFALSE;
 	m_nHandsOutfit = 6;
 	m_nGunScale    = 4;
@@ -66,8 +72,12 @@ CFolderVR::CFolderVR()
 	m_nAimDotSize  = 20;
 	m_bBigMenuText = LTTRUE;
 	m_bShowBody    = LTTRUE;
+	m_bRealCrouch  = LTFALSE;
 	m_bMirrorBody  = LTTRUE;
 	m_nResolution  = 100;
+	m_nResIdx      = 8;
+	m_nMenuSize    = 100;
+	m_nMenuDist    = 170;
 	m_bSpectator   = LTTRUE;
 	m_pBindHeader  = LTNULL;
 	m_bBindFrame   = false;
@@ -80,6 +90,10 @@ CFolderVR::CFolderVR()
 	m_bGlassesToFace = LTFALSE;
 	m_bThrowByHand   = LTFALSE;
 	m_bTwoHanded     = LTFALSE;
+	m_bRackSlide     = LTFALSE;
+	m_bRoomScale     = LTTRUE;
+	m_bWallFade      = LTTRUE;
+	m_bAmmoOnGun     = LTFALSE;
 	m_nPhysPreset    = 0;
 }
 
@@ -103,8 +117,8 @@ int CFolderVR::PhysicalPresetNow() const
 {
 	const int nOn = (m_bHolsters ? 1 : 0) + (m_bManualReload ? 1 : 0) + (m_bSwingMelee ? 1 : 0)
 				  + (m_bWristHud ? 1 : 0) + (m_bGlassesToFace ? 1 : 0) + (m_bThrowByHand ? 1 : 0)
-				  + (m_bTwoHanded ? 1 : 0);
-	return (nOn == 0) ? 0 : (nOn == 7) ? 1 : 2;
+				  + (m_bTwoHanded ? 1 : 0) + (m_bRackSlide ? 1 : 0) + (m_bAmmoOnGun ? 1 : 0);
+	return (nOn == 0) ? 0 : (nOn == 9) ? 1 : 2;
 }
 
 void CFolderVR::ApplyPhysicalPreset(int nPreset)
@@ -112,6 +126,11 @@ void CFolderVR::ApplyPhysicalPreset(int nPreset)
 	UpdateData(LTTRUE);
 	const LTBOOL b = (nPreset == 1) ? LTTRUE : LTFALSE;
 	m_bHolsters = m_bManualReload = m_bSwingMelee = m_bWristHud = m_bGlassesToFace = m_bThrowByHand = m_bTwoHanded = b;
+	m_bRackSlide = b;
+	// Physical also crouches for real and shows the ammo on the gun; Buttons
+	// leaves both off.
+	m_bAmmoOnGun = b;
+	m_bRealCrouch = b;
 	m_nPhysPreset = (nPreset == 1) ? 1 : 0;
 	UpdateData(LTFALSE);
 	g_pInterfaceMgr->RequestInterfaceSound(IS_SELECT);
@@ -197,6 +216,7 @@ LTBOOL CFolderVR::Build()
 	const char* pTitle = "VR Options";
 	for (int p = 0; p < kVRPageCount; ++p)
 		if (kVRPages[p].eId == nId) pTitle = kVRPages[p].pLabel;
+	if (nId == FOLDER_ID_VR_STYLE) pTitle = "How do you want to play?";
 	CreateTitle((char*)pTitle);
 
 	kGap = 0;
@@ -216,20 +236,20 @@ LTBOOL CFolderVR::Build()
 	kWidth *= yr;
 
 	// The value column clears the widest label actually drawn (as on every
-	// other options page): "Steady desktop view (restart)" ran into its ON.
+	// other options page): "Steady observer view (restart)" ran into its ON.
 	// Measured over every page's labels, so the column is the same on all of
 	// them and a page does not jump sideways from the one before it.
 	{
 		static const char* const kLabels[] = {
-			"Head bob", "Weapon sway", "Snap turning", "Turn speed", "Steer with both grips",
+			"Head bob", "Weapon sway", "Snap turning", "Turn speed (deg/s)", "Steer with both grips",
 			"Leftorium (left-handed)", "Swap sticks", "Gun follows hand", "Gun size",
-			"Hand movement", "Controller rumble", "Aim dot", "VR captions", "Aim dot size",
-			"Show body (restart)", "See yourself in mirrors (restart)",
-			"Resolution % (restart)", "Steady desktop view (restart)", "Large menu text",
+			"Hand movement", "Controller rumble", "Rumble strength %", "Gun forward / back", "Gun up / down", "Gun right / left", "Aim dot", "VR captions", "Aim dot size",
+			"Show body (restart)", "See yourself in mirrors (restart)", "Crouch for real",
+			"Resolution (restart)", "Menu size % (restart)", "Menu distance cm (restart)", "Steady observer view (restart)", "Match headset refresh rate (restart)", "Large menu text",
 			"Use / activate", "Previous weapon", "Next ammo type",
 			"Walk direction", "Analog walking",
 			"Physical play", "Holsters on the body", "Holster height", "Manual reload",
-			"Swing to hit", "Wrist display", "Glasses to your eyes", "Two hands on long guns",
+			"Swing to hit", "Wrist display", "Glasses to your eyes", "Two hands on long guns", "Rack the slide", "Ammo on the gun", "Room-scale", "Wall fade",
 			"Debug: god mode", "Debug: walk through walls", "Debug: all weapons+gear",
 			"Debug: kill all enemies", "Debug: all missions", "Debug: show position",
 			"Debug: skip level (R grip + B)" };
@@ -278,7 +298,8 @@ LTBOOL CFolderVR::Build()
 		// Smooth turning is the default in every port; snap is the
 		// option for anyone it does not suit.
 		AddOnOff("Snap turning", &m_bSnapTurn);
-		AddRange("Turn speed", &m_nTurnRate, 1, 10, 1);
+		// Degrees a second; 120 is the house default.
+		AddRange("Turn speed (deg/s)", &m_nTurnRate, 30, 240, 15);
 		// A left-handed player still moves with the left stick; this is for
 		// anyone who wants move and turn the other way round.
 		AddOnOff("Swap sticks", &m_bSwapSticks);
@@ -311,6 +332,13 @@ LTBOOL CFolderVR::Build()
 		// The body is a renderer switch (StubBody) and takes effect on the next
 		// launch; the label says so. The mirror too (StubMirrorBody).
 		AddOnOff("Show body (restart)", &m_bShowBody);
+		// Crouch down for real (about 30 cm below where your head was at the
+		// recenter) and Cate crouches, so she fits where a crouch fits.
+		AddOnOff("Crouch for real", &m_bRealCrouch);
+		// Walk around the room and Cate walks with you; walls stop her.
+		AddOnOff("Room-scale", &m_bRoomScale);
+		// Your head inside a wall she could not walk through goes dark.
+		AddOnOff("Wall fade", &m_bWallFade);
 		AddOnOff("See yourself in mirrors (restart)", &m_bMirrorBody);
 		// In VR the camera is the head: bobbing it moves the world under
 		// someone who is not moving, which is the textbook way to make a
@@ -333,6 +361,12 @@ LTBOOL CFolderVR::Build()
 		// One switch for both kinds of buzz, firing and being hit: VRHaptics
 		// already gates both. VRHapticsDamage stays a console-only refinement.
 		AddOnOff("Controller rumble", &m_bRumble);
+		AddRange("Rumble strength %", &m_nRumbleStrength, 25, 300, 25);
+		// Every gun moved in the hand, on top of its own tuned grip:
+		// centimetres, -10 to +10 (the middle is 0).
+		AddRange("Gun forward / back", &m_nGunPos[0], 0, 20, 1);
+		AddRange("Gun up / down", &m_nGunPos[1], 0, 20, 1);
+		AddRange("Gun right / left", &m_nGunPos[2], 0, 20, 1);
 		// CATE'S OWN HANDS: fingers that follow the trigger, grip and touch, at
 		// both controllers (VRHands.cpp). The gloves: ours, painted, or her
 		// outfit's own when setup has made them from the game's files.
@@ -363,12 +397,34 @@ LTBOOL CFolderVR::Build()
 		// (play-vr.ps1 reads it from autoexec.cfg with the headset's recommended
 		// size); the label says so. 100 is the headset's size; lower is lighter on
 		// a weaker GPU.
-		AddRange("Resolution % (restart)", &m_nResolution, 60, 125, 5);
+		// A row that names its value (60% ... 125%): as a slider it showed no
+		// number, and players asked what they had set.
+		{
+			CCycleCtrl* pRes = AddCycleItem("Resolution (restart)", 0, kGap, 0, &m_nResIdx);
+			if (pRes)
+			{
+				for (int r = 60; r <= 125; r += 5)
+				{
+					char sz[8];
+					sprintf(sz, "%d%%", r);
+					HSTRING h = g_pLTClient->CreateString(sz);
+					pRes->AddString(h);
+					g_pLTClient->FreeString(h);
+				}
+			}
+		}
+		// THE MENU SCREEN'S SIZE AND DISTANCE are the player's. The host places
+		// the panel at launch, so play-vr.ps1 reads these from autoexec.cfg.
+		AddRange("Menu size % (restart)", &m_nMenuSize, 50, 150, 10);
+		AddRange("Menu distance cm (restart)", &m_nMenuDist, 100, 300, 10);
 		// THE DESKTOP VIEW for a stream or a recording: on, the monitor shows a
 		// steadied, level cut-out of the right eye that follows the head's turns
 		// but not its wobble; off, the eye as it is. The host sets it up at
 		// launch, so the label says restart.
-		AddOnOff("Steady desktop view (restart)", &m_bSpectator);
+		AddOnOff("Steady observer view (restart)", &m_bSpectator);
+		// The game at the headset's own rate (120, 144) instead of 90. Off:
+		// the headset is asked down to 90 Hz.
+		AddOnOff("Match headset refresh rate (restart)", &m_bMatchRefresh);
 		// NO ANTI-ALIASING CONTROL HERE ON PURPOSE. The renderer's multisampling
 		// is built and free but draws sky-coloured shards through alpha-tested
 		// geometry, so it ships off; a menu is the last place to offer that. The
@@ -411,16 +467,52 @@ LTBOOL CFolderVR::Build()
 		// The reload button ejects; the off hand brings a clip from the pouch
 		// on the off-side hip to the gun.
 		AddOnOff("Manual reload", &m_bManualReload);
+		// With manual reload: a gun fired empty needs its slide pulled by
+		// the off hand after the new clip goes in.
+		AddOnOff("Rack the slide", &m_bRackSlide);
 		// A hand swung fast enough hits who it passes through.
 		AddOnOff("Swing to hit", &m_bSwingMelee);
 		// Health, armor and the clip on the off-hand wrist.
 		AddOnOff("Wrist display", &m_bWristHud);
+		// The clip and the rounds left, beside the gun. Not part of the
+		// Physical/Buttons choice: it suits either.
+		AddOnOff("Ammo on the gun", &m_bAmmoOnGun);
 		// The sunglasses go on only while they are held to the eyes.
 		AddOnOff("Glasses to your eyes", &m_bGlassesToFace);
 		// The coin and the lipsticks: hold the trigger, swing, let go.
 		AddOnOff("Throw by hand", &m_bThrowByHand);
 		// The off hand on a long gun's front: the gun aims from hand to hand.
 		AddOnOff("Two hands on long guns", &m_bTwoHanded);
+		break;
+	}
+
+	case FOLDER_ID_VR_STYLE:
+	{
+		// PLAY STYLE, asked once before the first new game in VR (FolderSingle):
+		// the Physical Play preset, chosen before it matters. Physical also
+		// puts Cate's hands on, which the holsters and the hand reload are
+		// built around. Short lines in the small font: the menu panel is narrow.
+		AddTextItem("Physical", CMD_VR_STYLE_PHYS, 0);
+		static const char* const kPhys[] = { "Draw from holsters on your body,",
+			"reload by hand, swing to punch,", "a wrist display, glasses to your eyes." };
+		for (int i = 0; i < 3; ++i)
+		{
+			CLTGUITextItemCtrl* pT = AddTextItem((char*)kPhys[i], 0, 0, LTFALSE, GetSmallFont());
+			if (pT) pT->Enable(LTFALSE);
+		}
+		CLTGUITextItemCtrl* pGap = AddTextItem(" ", 0, 0, LTFALSE, GetSmallFont());
+		if (pGap) pGap->Enable(LTFALSE);
+		AddTextItem("Buttons", CMD_VR_STYLE_BTNS, 0);
+		static const char* const kBtns[] = { "Everything on the controller buttons,", "the way the game was made." };
+		for (int i = 0; i < 2; ++i)
+		{
+			CLTGUITextItemCtrl* pT = AddTextItem((char*)kBtns[i], 0, 0, LTFALSE, GetSmallFont());
+			if (pT) pT->Enable(LTFALSE);
+		}
+		pGap = AddTextItem(" ", 0, 0, LTFALSE, GetSmallFont());
+		if (pGap) pGap->Enable(LTFALSE);
+		CLTGUITextItemCtrl* pNote = AddTextItem("Change it any time: VR Options > Physical Play.", 0, 0, LTFALSE, GetSmallFont());
+		if (pNote) pNote->Enable(LTFALSE);
 		break;
 	}
 
@@ -496,7 +588,7 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_nHeadBob     = (int)(10.0f * CVarF("HeadBob", 1.0f));
 		m_nWeaponSway  = (int)(10.0f * CVarF("WeaponSway", 1.0f));
 		m_bSnapTurn    = (CVarF("VRSnapTurn", 0.0f) > 0.0f);
-		m_nTurnRate    = (int)CVarF("NormalTurnRate", 3.0f);
+		m_nTurnRate    = (int)(CVarF("VRTurnSpeed", 120.0f) + 0.5f);
 		m_bSteerHands  = (CVarF("VRVehicleSteer", 1.0f) > 0.0f);
 		m_bLeftorium   = (CVarF("VRLeftorium", 0.0f) > 0.0f);
 		m_bSwapSticks  = (CVarF("VRSwapSticks", 0.0f) > 0.0f);
@@ -505,6 +597,20 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_bAnalogWalk  = (CVarF("VRAnalogWalk", 0.0f) > 0.0f);
 		m_bGunAtHand   = (CVarF("VRGunAtHand", 1.0f) > 0.0f);
 		m_bRumble      = (CVarF("VRHaptics", 1.0f) > 0.0f);
+		m_bMatchRefresh = (CVarF("VRMatchRefresh", 0.0f) > 0.0f);
+		m_nRumbleStrength = (int)(CVarF("VRHapticsStrength", 100.0f) + 0.5f);
+		if (m_nRumbleStrength < 25)  m_nRumbleStrength = 25;
+		if (m_nRumbleStrength > 300) m_nRumbleStrength = 300;
+		{
+			static const char* const kPos[3] = { "VRGunPosForward", "VRGunPosUp", "VRGunPosRight" };
+			for (int a = 0; a < 3; ++a)
+			{
+				const float f = CVarF((char*)kPos[a], 0.0f);
+				m_nGunPos[a] = (int)(f + (f < 0.0f ? -0.5f : 0.5f)) + 10;
+				if (m_nGunPos[a] < 0)  m_nGunPos[a] = 0;
+				if (m_nGunPos[a] > 20) m_nGunPos[a] = 20;
+			}
+		}
 		m_bCateHands   = (CVarF("VRCateHands", 1.0f) > 0.0f);
 		m_nHandsOutfit = (int)(CVarF("VRHandsOutfit", 6.0f) + 0.5f);
 		if (m_nHandsOutfit < 0 || m_nHandsOutfit > 6) m_nHandsOutfit = 6;
@@ -522,11 +628,21 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_nAimDotSize  = (int)(10.0f * CVarF("VRAimMarkerWorldSize", 2.0f));
 		m_bBigMenuText = (CVarF("VRMenuBigSubs", 1.0f) > 0.0f);
 		m_bShowBody    = (CVarF("VRShowBody", 1.0f) > 0.0f);
+		m_bRealCrouch  = (CVarF("VRRealCrouch", 0.0f) > 0.0f);
 		m_bMirrorBody  = (CVarF("StubMirrorBody", 1.0f) > 0.0f);
 		m_nResolution  = (int)(CVarF("VRResolution", 100.0f) + 0.5f);
 		m_nResolution  = ((m_nResolution + 2) / 5) * 5;
 		if (m_nResolution < 60)  m_nResolution = 60;
 		if (m_nResolution > 125) m_nResolution = 125;
+		m_nResIdx      = (m_nResolution - 60) / 5;
+		m_nMenuSize    = (int)(CVarF("VRMenuSize", 100.0f) + 0.5f);
+		m_nMenuSize    = ((m_nMenuSize + 5) / 10) * 10;
+		if (m_nMenuSize < 50)  m_nMenuSize = 50;
+		if (m_nMenuSize > 150) m_nMenuSize = 150;
+		m_nMenuDist    = (int)(CVarF("VRMenuDist", 170.0f) + 0.5f);
+		m_nMenuDist    = ((m_nMenuDist + 5) / 10) * 10;
+		if (m_nMenuDist < 100) m_nMenuDist = 100;
+		if (m_nMenuDist > 300) m_nMenuDist = 300;
 		m_bSpectator   = (CVarF("VRSpectator", 1.0f) > 0.0f);
 		// PHYSICAL PLAY: every part is off by default.
 		m_bHolsters      = (CVarF("VRHolsters", 0.0f) > 0.0f);
@@ -539,6 +655,10 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_bGlassesToFace = (CVarF("VRGlassesToFace", 0.0f) > 0.0f);
 		m_bThrowByHand   = (CVarF("VRThrowByHand", 0.0f) > 0.0f);
 		m_bTwoHanded     = (CVarF("VRTwoHanded", 0.0f) > 0.0f);
+		m_bRackSlide     = (CVarF("VRRackSlide", 0.0f) > 0.0f);
+		m_bRoomScale     = (CVarF("VRRoomScale", 1.0f) > 0.0f);
+		m_bWallFade      = (CVarF("VRWallFade", 1.0f) > 0.0f);
+		m_bAmmoOnGun     = (CVarF("VRAmmoOnGun", 0.0f) > 0.0f);
 		m_nPhysPreset    = PhysicalPresetNow();
 
 		// Clamp what came out of the config into the ranges the controls
@@ -550,8 +670,8 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		if (m_nHandTravel > 120) m_nHandTravel = 120;
 		if (m_nAimDotSize < 3) m_nAimDotSize = 3;
 		if (m_nAimDotSize > 30) m_nAimDotSize = 30;
-		if (m_nTurnRate < 1)   m_nTurnRate = 1;
-		if (m_nTurnRate > 10)  m_nTurnRate = 10;
+		if (m_nTurnRate < 30)  m_nTurnRate = 30;
+		if (m_nTurnRate > 240) m_nTurnRate = 240;
 
 		if (GetFolderID() == FOLDER_ID_VR_CONTROLS) FillBindRows();
 
@@ -564,8 +684,8 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleFloat("HeadBob",         (LTFLOAT)m_nHeadBob / 10.0f);
 		WriteConsoleFloat("WeaponSway",      (LTFLOAT)m_nWeaponSway / 10.0f);
 		WriteConsoleInt  ("VRSnapTurn",      (int)m_bSnapTurn);
-		WriteConsoleFloat("NormalTurnRate",  (LTFLOAT)m_nTurnRate);
-		WriteConsoleFloat("FastTurnRate",    (LTFLOAT)m_nTurnRate * 1.1f);
+		// The keyboard's NormalTurnRate/FastTurnRate are left alone (flat play).
+		WriteConsoleFloat("VRTurnSpeed",     (LTFLOAT)m_nTurnRate);
 		WriteConsoleInt  ("VRVehicleSteer",  (int)m_bSteerHands);
 		WriteConsoleInt  ("VRLeftorium",     (int)m_bLeftorium);
 		WriteConsoleInt  ("VRSwapSticks",    (int)m_bSwapSticks);
@@ -573,6 +693,11 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleInt  ("VRAnalogWalk",    (int)m_bAnalogWalk);
 		WriteConsoleInt  ("VRGunAtHand",     (int)m_bGunAtHand);
 		WriteConsoleInt  ("VRHaptics",       (int)m_bRumble);
+		WriteConsoleInt  ("VRHapticsStrength", m_nRumbleStrength);
+		WriteConsoleInt  ("VRMatchRefresh",  (int)m_bMatchRefresh);
+		WriteConsoleFloat("VRGunPosForward", (LTFLOAT)(m_nGunPos[0] - 10));
+		WriteConsoleFloat("VRGunPosUp",      (LTFLOAT)(m_nGunPos[1] - 10));
+		WriteConsoleFloat("VRGunPosRight",   (LTFLOAT)(m_nGunPos[2] - 10));
 		WriteConsoleInt  ("VRCateHands",     (int)m_bCateHands);
 		WriteConsoleInt  ("VRHandsOutfit",   m_nHandsOutfit);
 		WriteConsoleFloat("VRViewModelSize", (LTFLOAT)m_nGunScale / 10.0f);
@@ -589,8 +714,14 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleFloat("VRAimMarkerWorldSize", (LTFLOAT)m_nAimDotSize / 10.0f);
 		WriteConsoleInt  ("VRMenuBigSubs",   (int)m_bBigMenuText);
 		WriteConsoleInt  ("VRShowBody",      (int)m_bShowBody);
+		WriteConsoleInt  ("VRRealCrouch",    (int)m_bRealCrouch);
 		WriteConsoleInt  ("StubMirrorBody",  (int)m_bMirrorBody);
+		if (m_nResIdx < 0)  m_nResIdx = 0;
+		if (m_nResIdx > 13) m_nResIdx = 13;
+		m_nResolution = 60 + 5 * m_nResIdx;
 		WriteConsoleInt  ("VRResolution",    m_nResolution);
+		WriteConsoleInt  ("VRMenuSize",      m_nMenuSize);
+		WriteConsoleInt  ("VRMenuDist",      m_nMenuDist);
 		WriteConsoleInt  ("VRSpectator",     (int)m_bSpectator);
 		WriteConsoleInt  ("VRHolsters",      (int)m_bHolsters);
 		WriteConsoleFloat("VRHolsterHeight", (LTFLOAT)(m_nHolsterHeight - 15));
@@ -600,6 +731,10 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleInt  ("VRGlassesToFace", (int)m_bGlassesToFace);
 		WriteConsoleInt  ("VRThrowByHand",   (int)m_bThrowByHand);
 		WriteConsoleInt  ("VRTwoHanded",     (int)m_bTwoHanded);
+		WriteConsoleInt  ("VRRackSlide",     (int)m_bRackSlide);
+		WriteConsoleInt  ("VRRoomScale",     (int)m_bRoomScale);
+		WriteConsoleInt  ("VRWallFade",      (int)m_bWallFade);
+		WriteConsoleInt  ("VRAmmoOnGun",     (int)m_bAmmoOnGun);
 		// The Controls page writes the map of the controller it showed.
 		if (GetFolderID() == FOLDER_ID_VR_CONTROLS)
 			for (int a = 0; a < VRBinds::ACT_COUNT; ++a)
@@ -615,6 +750,18 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 
 uint32 CFolderVR::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwParam2)
 {
+	if (dwCommand == CMD_VR_STYLE_PHYS || dwCommand == CMD_VR_STYLE_BTNS)
+	{
+		// Set on the members: leaving this page (OnFocus) writes every VR
+		// setting from them, so a cvar written here directly would be undone.
+		const bool bPhys = (dwCommand == CMD_VR_STYLE_PHYS);
+		ApplyPhysicalPreset(bPhys ? 1 : 0);
+		if (bPhys) m_bCateHands = LTTRUE;
+		WriteConsoleInt("VRPlayStyleAsked", 1);
+		VRLog::Msg("VRPlayStyle: %s chosen before the first new game", bPhys ? "Physical" : "Buttons");
+		g_pInterfaceMgr->SwitchToFolder(FOLDER_ID_DIFFICULTY);
+		return 1;
+	}
 	if (dwCommand == CMD_VR_RECENTER)
 	{
 		// The same request the chord made; the host folds the head's yaw and

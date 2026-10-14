@@ -84,6 +84,7 @@ enum eFolderID
 	FOLDER_ID_VR_SCREEN,
 	FOLDER_ID_VR_CONTROLS,
 	FOLDER_ID_VR_PHYSICAL,	// Physical Play (VRPhysical.h), appended likewise
+	FOLDER_ID_VR_STYLE,		// "How do you want to play?", asked once before the first new game
 
 	//this must be the last id
 	FOLDER_ID_UNASSIGNED,

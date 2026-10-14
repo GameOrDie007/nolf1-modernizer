@@ -45,6 +45,7 @@ protected:
 	HSTRING	m_BuildVersion;
     LTIntPt  m_BuildPos;
 	CLTGUITextItemCtrl* m_pResume;
+	CLTGUITextItemCtrl* m_pBook;
 
 };
 

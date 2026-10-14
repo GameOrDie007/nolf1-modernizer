@@ -4,7 +4,7 @@
 //
 // PURPOSE : Structured per-run logging for the NOLF1 VR project.
 //
-//           A project rule: logging exists before features. Every hook reports
+//           Hard rule #1: logging exists before features. Every hook reports
 //           install, activation and failure through here.
 //
 //           Fails open. If the log file cannot be opened the game runs

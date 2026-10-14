@@ -68,6 +68,8 @@ extern void VRFlashOffsetsInvalidate();
 #include "VRBinds.h"
 #include "VRWalk.h"
 #include "VRPhysical.h"
+#include "VRRoom.h"
+#include "VRGunParts.h"
 
 extern ConsoleMgr* g_pConsoleMgr;
 
@@ -301,10 +303,10 @@ VarTrack			g_vtVRAutoQuickLoad;			// VRAutoQuickLoad			<0-1>
 // is why the door handle in M06S01 - at (-994 -128 854), four thousand units
 // from that level's spawn - could only ever be checked in a headset.
 //   +VRTele 1 +VRTeleX -994 +VRTeleY -128 +VRTeleZ 854
-// LOOK AROUND WHILE PAUSED. Item 6 on a list, and NOT what item 5
+// LOOK AROUND WHILE PAUSED. Item 6 on the tester's list, and NOT what item 5
 // delivered: the pause backdrop shows the right PLACE but is a frozen
 // snapshot, because the client's eye loop does not run in a folder state.
-// This turns the interface camera with the head so the picture follows the player.
+// This turns the interface camera with the head so the picture follows him.
 VarTrack			g_vtVRPauseLook;				// VRPauseLook				<0-1>
 VarTrack			g_vtVRTele;						// VRTele					<0-1>
 VarTrack			g_vtVRTeleX;
@@ -330,7 +332,7 @@ VarTrack			g_vtVRHeadListener;				// VRHeadListener			<0-1>
 // It is OFF by default and only reachable from Options > VR, so a player who
 // never turns it on cannot meet it by accident.
 // ===========================================================================
-#define VR_DEBUG_TOOLS 0
+#define VR_DEBUG_TOOLS 1
 
 // For files that cannot see the macro: FolderVR shows its Debug rows only
 // in a build that can act on them.
@@ -531,7 +533,7 @@ static bool			s_bRootRefValid = false;
 // the Walther and the S&W - and a reference keyed on the handle alone stayed
 // valid across the swap. The S&W was drawn with the WALTHER's root rest
 // orientation. In headset testing in Morocco the revolver came up pointing
-// at the player but shot the way the player was facing - the log's far-node yaw read
+// at the player but shot the way he was facing - the log's far-node yaw read
 // +179. Keyed on the weapon id as well, the rest pose is recaptured from each
 // weapon's own idle. (See the heap-address-is-not-identity note: same trap,
 // one level up - an engine object is not a model either.)
@@ -547,6 +549,11 @@ VarTrack			g_vtVRHeadPos;					// VRHeadPos				<0-1>
 // the player happens to be standing.
 static LTBOOL	s_bHeadRefValid = LTFALSE;
 static float	s_fHeadRefX = 0.0f, s_fHeadRefY = 0.0f, s_fHeadRefZ = 0.0f;
+// CROUCH FOR REAL (VRRealCrouch): the head 30 cm below where it was at the
+// recenter crouches the body; back above 22 cm stands it up. Set where the
+// head is read (RenderWorldEyes), acted on by the next frame's controls.
+static bool	s_bVRRealCrouch = false;
+static bool	s_bVRDuckButton = false;	// the duck button is held (that duck keeps its view drop)
 // Where the head was LAST frame. The re-reference test needs a per-frame
 // delta, not a distance from the reference: a player who walks half a metre
 // from where they spawned has not teleported, and must not be re-centred.
@@ -570,7 +577,7 @@ const float CGameClientShell::kCalibYawRad = 5.0f * 0.01745329f;
 // repeats frames and reprojection has to invent the difference, which is what
 // smears when you turn.
 //
-// Measured on the player's machine: the only physical monitor tops out at 60 Hz
+// Measured on the owner's machine: the only physical monitor tops out at 60 Hz
 // at every resolution it offers, while two Virtual Desktop virtual displays sit
 // at 120 Hz. Moving the window onto one of those lifts the ceiling, and has the
 // side benefit of taking the side-by-side image off the physical desktop.
@@ -1294,7 +1301,7 @@ void CGameClientShell::InitSound()
 	// no positional audio provider at all, only the engine's own stereo panning
 	// from the listener. In a headset that is most of why a head-tracked
 	// listener is hard to NOTICE: turning your head changes a pan, not a
-	// direction. the sound direction went unnoticed.
+	// direction. Headset testing, 11 September: the sound direction went unnoticed.
 	//
 	// The game ships seven providers (MSSDS3DS.M3D, MSSEAX.M3D, MSSDOLBY.M3D
 	// and the rest), so the choice can be made from evidence rather than from
@@ -1829,8 +1836,19 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// VR: 0 = off (one render, stock behaviour)
 	//     1 = world drawn twice with the SAME camera (the M2 correctness test)
 	//     2 = side-by-side stereo, half IPD per eye (M3)
-	// Cycled in-game with F9, per a project rule.
+	// Cycled in-game with F9, per hard rule #6.
 	g_vtVRStereo.Init(g_pLTClient, "VRStereo", LTNULL, 2.0f);
+	// THE FLAT FALLBACK (the launcher, tools\play-vr.ps1): no headset, so the game
+	// runs on the monitor, and the log says why.
+	{
+		const int nFlat = (int)GetConsoleFloat("VRFlatReason", 0.0f);
+		if (nFlat > 0)
+			VRLog::Msg("FLAT: playing on the monitor - %s",
+				nFlat == 4 ? "chosen (the flat launcher)"
+				: nFlat == 2 ? "no VR headset was found"
+				: nFlat == 1 ? "OpenXR could not start (no headset software is the active runtime)"
+				: "the headset session could not start");
+	}
 
 	// Interpupillary distance in world units.
 	//
@@ -1897,7 +1915,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// exactly a Z-axis flip, which inverts rotations about X and Y and leaves
 	// rotation about Z alone.
 	//
-	// Confirmed in the headset: yaw (about Y) inverted, pitch (about X)
+	// Owner confirmed in the headset: yaw (about Y) inverted, pitch (about X)
 	// inverted, roll (about Z) correct. All three agree with the Z-flip, so
 	// these defaults are the conversion, not a fudge.
 	// 1 = apply the head rotation as the quaternion the runtime reported.
@@ -1907,7 +1925,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// rebuild. It is exact for rotation about one axis, which is why single
 	// axis testing never showed a problem; it drifts as soon as pitch and roll
 	// are combined, which is what tilting the head does.
-	// DEFAULT 2 - a deliberate choice, made with the trade-off known.
+	// DEFAULT 2 - the owner's call, made with the trade in front of him.
 	//
 	// Mode 1 is the CORRECT camera composition (measured; see
 	// LogRotationConvention, which prints the proof every run). Mode 2 is not:
@@ -2003,7 +2021,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// the VIEW axis. That was right while the gun followed the head. It is
 	// wrong now: the weapon is aimed by the right controller, so the mark
 	// on screen and the bullet go to different places, and the player has
-	// no way to tell where the player is pointing.
+	// no way to tell where he is pointing.
 	//
 	// This one is a SPRITE PLACED IN THE WORLD at the point the gun's own
 	// ray hits, built from CWeaponModel::GetFireInfo - the same call the
@@ -2070,8 +2088,8 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// obvious ways, so one look separates them.
 	// DEFAULT 2 - rotate with the hand, swinging about the eye.
 	//
-	// Mode 1's free positional tracking is off by default: even
-	// a small hand movement threw the model off screen. Anything that can
+	// Mode 1's free positional tracking is off by default. The owner: 'even
+	// moving half an inch makes the model fly off screen'. Anything that can
 	// leave the frame at all is the wrong mechanism here, and no scale factor
 	// repairs that - the authored distance from the face is what keeps the
 	// weapon usable.
@@ -2134,7 +2152,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// HER SHOULDERS UNDER YOUR HEAD: metres behind the eye, along the ground,
 	// the body is moved to each frame. Her animation put them anywhere from
 	// level with the eye to 20 cm behind it by level and pose, and from 20 cm
-	// back the arms could not reach the controllers.
+	// back the arms could not reach the controllers (headset, 27 September).
 	// Negative turns it off.
 	g_vtVRBodyShoulderBack.Init(g_pLTClient, "VRBodyShoulderBack", LTNULL, 0.08f);
 	// How far an arm may stretch past its own length to reach a controller:
@@ -2143,12 +2161,12 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// The off hand's WRIST against its controller, metres along the
 	// controller's inner side, up and forward. F -0.07: the controller's point
 	// is in the palm, and a wrist put there held the whole hand out in front
-	// of the real one. The arm tuner's OFF HAND mode.
+	// of the real one (headset, 27 September). The arm tuner's OFF HAND mode.
 	g_vtVRBodyPalmR.Init(g_pLTClient, "VRBodyPalmR", LTNULL, -0.075f);
 	g_vtVRBodyPalmU.Init(g_pLTClient, "VRBodyPalmU", LTNULL, -0.05f);
 	g_vtVRBodyPalmF.Init(g_pLTClient, "VRBodyPalmF", LTNULL, -0.15f);
 	// And its roll on top of the controller's, degrees (OFF TURN mode). 70 tuned; first a quarter
-	// turn counter-clockwise seen from behind the hand.
+	// turn counter-clockwise seen from behind the hand (headset, 27 September).
 	// Shoulder 0.08 and the palm offsets above were tuned in the headset that evening.
 	g_vtVRBodyOffRoll.Init(g_pLTClient, "VRBodyOffRoll", LTNULL, 160.0f);
 	// ...and its yaw (toward the inner side) and pitch (toward the controller's
@@ -2160,7 +2178,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	g_vtVRBodyOffPitch.Init(g_pLTClient, "VRBodyOffPitch", LTNULL, -5.0f);
 	// THE RIGHT HAND HAS ITS OWN: its node frame is not the left's mirrored,
 	// and with the left hand's tuning mirrored the empty right hand sat half a
-	// turn over. Its roll (absolute, degrees; 265 tuned
+	// turn over (headset, 27 September). Its roll (absolute, degrees; 265 tuned
 	// in the hand tuner) and its wrist against its controller,
 	// the same axes as the left's (in, up, forward, metres). Per SIDE, not per
 	// role: the Leftorium does not swap them.
@@ -2178,7 +2196,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// 1: the gun hand goes to the drawn gun's grip (the old way). 0: it stays
 	// on its controller where it was tuned, and the gun is fitted to it with
 	// the hand tuner's GUN page (VRGripOff*@gun) - "the hands sit where I
-	// think they should sit".
+	// think they should sit" (headset, 27 September).
 	g_vtVRBodyGunGrip.Init(g_pLTClient, "VRBodyGunGrip", LTNULL, 0.0f);
 	// THE HAND THAT HOLDS A GUN sits this much further (metres: toward the
 	// other hand, up, forward along its controller) than the empty hand. The
@@ -2197,7 +2215,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// forearms and hands only; 2, the whole arm, bent again from the set-back
 	// shoulder and stretched up to 1.4x to reach (1.2-1.3 at the desk).
 	// 0 BY DEFAULT: the game's arm and hand models are too low in detail to
-	// sell being your own hands up close. The eyes get
+	// sell being your own hands up close (headset, 27 September). The eyes get
 	// the body without arms and the floating gun, with the support hand; the
 	// mirror keeps her arms. Better hands would need new models.
 	g_vtVRBodyArms.Init(g_pLTClient, "VRBodyArms", LTNULL, 0.0f);
@@ -2235,7 +2253,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// a 256x256 skin, in the right hand. logs/viewmodel-ab.png is the pair and
 	// the difference is not subtle.
 	//
-	// the gun models looked very low quality, and
+	// Headset testing, 8 September: the gun models looked very low quality, and
 	// the massive red dot was ugly. The first half of that was this switch
 	// being off. VRViewModel 0 is the way back.
 	g_vtVRViewModel.Init(g_pLTClient, "VRViewModel", LTNULL, 1.0f);
@@ -2259,7 +2277,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	g_vtVRViewModelSize.Init(g_pLTClient, "VRViewModelSize", LTNULL, 1.4f);
 
 	// How far from the eye the weapon sits, as a multiple of the game's own
-	// offset. DEFAULT 2.5 because the player reports the silencer alone filling
+	// offset. DEFAULT 2.5 because the owner reports the silencer alone filling
 	// the screen top to bottom. See the note at the use site: that is the
 	// opposite of what the field of view predicts, so distance is a workaround
 	// and the real cause is probably the weapon being drawn with a different
@@ -2296,7 +2314,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// EXPERIMENT (F1). Feed head rotation in as if it were mouse movement, and
 	// tell the host to submit head-locked so the runtime reprojects nothing.
 	//
-	// Everything about the warping points at one comparison the player has made
+	// Everything about the warping points at one comparison the owner has made
 	// repeatedly: mouse look feels correct, head look does not. The two differ
 	// in exactly two ways - the camera path they take, and the fact that only
 	// head look gives the runtime something to reproject against. This makes
@@ -2358,7 +2376,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// VRFlashTune 1 turns on the numpad tuner and the on-screen readout.
 	// VRFlashHold 1 keeps the flash lit continuously - a 50 ms flicker
 	// cannot be aimed at, and tuning something you only glimpse is how
-	// this effect has been slow to tune.
+	// this effect has eaten a whole evening.
 	g_vtVRMuzzleScale.Init(g_pLTClient, "VRMuzzleScale", LTNULL, 0.0f);
 	g_vtVRFlashTune.Init(g_pLTClient, "VRFlashTune", LTNULL, 0.0f);
 	g_vtVRFlashOffR.Init(g_pLTClient, "VRFlashOffR", LTNULL, 0.0f);
@@ -2368,7 +2386,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	g_vtVRLogPos.Init(g_pLTClient, "VRLogPos", LTNULL, 0.0f);
 	g_vtVRDebugQuickSave.Init(g_pLTClient, "VRDebugQuickSave", LTNULL, 0.0f);
 	// RELOAD ON A TIMER, so the desk can reproduce the one bug that has only
-	// ever been triggered on the machine: reload the quick save from the menu
+	// ever been triggered on his machine: reload the quick save from the menu
 	// and the NPC skins scramble, differently every time. Off unless asked
 	// for; +VRAutoReloadSecs 15 reloads every fifteen seconds of play.
 	g_vtVRAutoReloadSecs.Init(g_pLTClient, "VRAutoReloadSecs", LTNULL, 0.0f);
@@ -2400,7 +2418,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// confounded: the arm without it lost window focus 45 times to my own
 	// progress polling, and a focus loss reloads the render DLL and is where
 	// DirectSound loses its buffers. A clean control is what decides this.
-	// See the development notes.
+	// See HANDOFF.md.
 	g_vtVRSoundReset.Init(g_pLTClient, "VRSoundReset", LTNULL, 1.0f);
 	// THE MUZZLE FLASH'S TRANSFORM, with an off switch so it can be shown to
 	// fail. A camera-relative model carries a CAMERA-SPACE position, which is
@@ -2436,7 +2454,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	//
 	// Nothing at the desk could fire a gun, so the muzzle flash could only
 	// ever be confirmed by asking the tester to put the headset on and shoot
-	// something - and headset testing time is limited.
+	// something - and a testing round is the scarcest thing this project has.
 	// Worse, the harness reported "PV flash shown 0 times" run after run and
 	// that was never evidence about the flash at all: every harness run sat in
 	// the opening cinematic's CHASE camera with the view weapon DISABLED, so
@@ -2476,7 +2494,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	g_vtVRWorldAttach.Init(g_pLTClient, "VRWorldAttach", LTNULL, 1.0f);
 
 	// Controller input. On by default: without it there is no way to walk or
-	// to work a menu in the headset, and the player cannot always reach a
+	// to work a menu in the headset, and the owner cannot always reach a
 	// keyboard. VRControls 0 is the A/B and the way back to keyboard only.
 	g_vtVRControls.Init(g_pLTClient, "VRControls", LTNULL, 1.0f);
 	g_vtVRStickDeadzone.Init(g_pLTClient, "VRStickDeadzone", LTNULL, 0.25f);
@@ -2500,7 +2518,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// THE FAR CLIP, NOT 4000. Retail draws a prop wherever the camera's far
 	// plane reaches (FarZ 100000); 4000 units is 68 m, and in the open night
 	// Morocco level the palms beyond it vanished and came back as the player
-	// crossed the line (trees popping in and
+	// crossed the line (headset testing, 23 September: trees popping in and
 	// out with distance). The publish sorts by distance before its cap, so the
 	// near objects keep their places. Sprites keep VRSpriteRange 4000: their
 	// 512-entry buffer is where a fresh bullet hole competes.
@@ -2547,7 +2565,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// through GetYRatio(), which is screen height over 480 - but the glyphs are
 	// a BITMAP font blitted 1:1, so they do not. At 1384 tall the layout is
 	// 2.88x the authored size and the text is still 28 pixels, which is why a
-	// menu line measures 0.79 degrees in the headset and the player cannot read it.
+	// menu line measures 0.79 degrees in the headset and he cannot read it.
 	//
 	// font_large_0_hd.pcx is 1981x52 against the original's 1096x28 - 1.857x -
 	// and InterfaceResMgr has been LOADING it and returning the small one from
@@ -2596,13 +2614,13 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// Take the eye separation from the headset's own reported IPD instead of a
 	// fixed number.
 	//
-	// This is drift protection, not a correction. A headset's IPD wheel can be
-	// mechanically loose and wander between 59 and 62 mm; it
-	// is set to 62 and the range cannot be told apart by eye. At 62 mm the
+	// This is drift protection, not a correction. The owner's IPD wheel is
+	// mechanically loose after a few drops and wanders between 59 and 62 mm; he
+	// keeps it at 62 and cannot tell the range apart by eye. At 62 mm the
 	// derived value is 3.64 against the shipped 3.65, so on a normal day this
 	// changes nothing. What it does is stop a run silently using a 5% different
 	// stereo baseline because the wheel moved, which would otherwise be an
-	// invisible confound in every A/B a tester is asked to judge.
+	// invisible confound in every A/B we ask him to judge.
 	//
 	// Falls back to the fixed VRIPD whenever the host is not live or the
 	// reported value is implausible.
@@ -2782,7 +2800,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// VRSweepField measures it.
 	g_vtVRFovYScale.Init(g_pLTClient, "VRFovYScale", LTNULL, 1.0f);
 
-	// Horizontal FOV trim. DEFAULT 0.8, measured by the player.
+	// Horizontal FOV trim. DEFAULT 0.8, measured by the owner.
 	//
 	// This deliberately renders NARROWER than what is declared to the runtime,
 	// so the headset spreads the image wider - about a 1.25x horizontal
@@ -2790,7 +2808,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	//
 	// NOLF at 16:9 is itself stretched: fovX 90 with fovY 78 describes a ~1.24
 	// aspect, not 1.78, so the flat game has always looked roughly 1.4x wide.
-	// A geometrically exact VR projection looks stretched tall to anyone
+	// A geometrically exact VR projection reads as "stretched tall" to anyone
 	// who knows the game, because it is the flat presentation that is wrong.
 	// Set 1.0 for true geometry if that is ever wanted.
 	// DEFAULT 0.70, MEASURED. A 5 degree calibration yaw shifted the image 36
@@ -2816,7 +2834,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// camera was set to 134.2 x 120.6 degrees, a tangent ratio of 1.343, into a
 	// 1600x1660 viewport whose aspect is 0.964 - so everything was drawn 1.39x
 	// too tall and too thin. That is the weapon looking like a blade, and it is
-	// the stretched-tall look the player has reported since M3.
+	// the stretched-tall look the owner has reported since M3.
 	//
 	// At 0.5 the camera gets 119.0 x 120.6, a ratio of 0.968, which matches the
 	// viewport. Every value tried before - 1.2, 1.0, 0.8, 0.7 - was above this,
@@ -2831,7 +2849,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// 0.771 - flagged as weak at the time, then relied on anyway. It should not
 	// have been acted on without a second reading.
 	//
-	// The decisive observation is the player's next one: the distortion appears
+	// The decisive observation is the owner's next one: the distortion appears
 	// IN THE HEADSET BUT NOT ON THE DESKTOP. The desktop shows the captured
 	// image as rendered; the headset shows it after the runtime maps it into
 	// the eye. If the desktop looks right, the render is right, and the fault
@@ -2839,14 +2857,14 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// the camera at all.
 	//
 	// That also means VRFovXTest is the wrong knob for this, and every attempt
-	// to fix it there was aimed at the wrong stage. Left at the value the player
+	// to fix it there was aimed at the wrong stage. Left at the value the owner
 	// has consistently judged least bad while the declaration is investigated.
 	// DEFAULT 0.8, and do not change it again without a measurement taken IN
 	// THE EYE VIEWPORT.
 	//
 	// 0.5 has now been shipped twice and rejected twice with the same observation:
 	// markedly worse - world short and wide, head tilt warping diagonally
-	// (15 August, dead4b6) and again on 2 September, where the player reported
+	// (15 August, dead4b6) and again on 2 September, where the owner reported
 	// bending on pitch and roll with yaw clean.
 	//
 	// Both times the argument for 0.5 was a measurement that could not see the
@@ -2860,8 +2878,8 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// viewport is the FULL screen height, so screenH/viewportH is 1 too.
 	//
 	// The measurement that would settle it renders the EYE viewport and yaws.
-	// Until that exists, 0.8 is the value chosen by eye in the headset three
-	// times, and the headset is the instrument this project actually has.
+	// Until that exists, 0.8 is the value the owner's eyes have selected three
+	// times, and his eyes are the instrument this project actually has.
 	g_vtVRFovXTest.Init(g_pLTClient, "VRFovXTest", LTNULL, 0.8f);
 
 	// Quit cleanly after N seconds. Zero, the default, never quits.
@@ -2880,7 +2898,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 	// a generous wall-clock guess because how long the game takes to reach the
 	// menu varies - one run loaded the save at 3.7 seconds and the next was
 	// still on the intro at 20. Every second of that margin is a game window
-	// on the player's screen. This ends the run at the moment the work is done.
+	// on the owner's screen. This ends the run at the moment the work is done.
 	g_vtVRQuitAfterSweep.Init(g_pLTClient, "VRQuitAfterSweep", LTNULL, 0.0f);
 
 	// Strip the window border and place the client at the top-left of the
@@ -2891,7 +2909,7 @@ uint32 CGameClientShell::OnEngineInitialized(RMode *pMode, LTGUID *pAppGuid)
 
 	// 1 = move the window to the fastest attached display; 0 = leave it on the
 	// primary. Only ever applied while the VR host is live, so the flat game
-	// never disappears onto a display the player cannot see. See VRMonProc.
+	// never disappears onto a display the owner cannot see. See VRMonProc.
 	//
 	// DEFAULT 1, and this time for a measured reason.
 	//
@@ -3577,7 +3595,7 @@ static uint32 g_nVRWorldGen = 0;	// counts worlds entered; see VRBodyAnimate
 // ##203 Left, ##205 Right, ##201 LookUp, ##209 LookDown, ##207 CenterView).
 // Up/Down, Home, Insert and Delete are unbound. The comment in the tuner said
 // these were suppressed; they never were, and tuning the arms turned the
-// player with every Left/Right press. The controllers'
+// player with every Left/Right press (headset, 27 September). The controllers'
 // own commands are not touched: the stick still walks and turns.
 bool VRTunerOwnsCommand(int nCmd)
 {
@@ -4022,7 +4040,7 @@ static float VRBodyPerGun(const char* pszBase, const char* pszSlug, VarTrack& vt
 // and forward, never the camera's (looking down, the camera's "down" is
 // backwards and the elbows folded the wrong way). Down and out alone put a
 // hanging arm's elbow straight out to the side, and with the arm along that
-// pole the elbow flipped from frame to frame; a
+// pole the elbow flipped from frame to frame (headset, 27 September); a
 // human elbow with the hand low points back, and with it in front, down.
 static LTVector VRElbowPole(const LTVector& vDir, const LTVector& vCamR, const LTVector& vCamF, bool bLeftArm)
 {
@@ -4103,7 +4121,7 @@ static float VRArmResolve(VRModelNode& nSh, VRModelNode& nEl, VRModelNode& nHa,
 
 // THE FOLDERS RETAIL DRAWS AS A FULL CARD, with no world behind them. Every
 // other folder that can be up with a world loaded is the pause family, and
-// the pause menu keeps the world by this port's own choice (the project rules, M6).
+// the pause menu keeps the world by this port's own choice (CLAUDE.md, M6).
 bool VRIsCardFolder(eFolderID eId)
 {
 	switch (eId)
@@ -4290,6 +4308,43 @@ static void VRPubMark(int nSec)
 	s_qPubMark = q.QuadPart;
 }
 
+// THE REAL EYE, FOR WHAT THE HANDS HOLD. The eyes are drawn from the camera plus
+// the head's offset (RenderWorldEyes); her hands, the gun and her body were
+// placed from the camera alone, with each hand's offset from the head. The two
+// agree only while the head is over the body. Room-scale walks the body after
+// the head a centimetre at a time, and every step moved the camera a centimetre
+// under hands that had not moved: in the headset they went in small jumps, a
+// few a second, like a low frame rate, while the world stayed smooth. Against a
+// wall the steps went back and forth and the hands showed double. The same
+// offset as the eyes, worked out the same way, from the same reference.
+LTVector CGameClientShell::VRHeadOffsetNow(bool bEvenIfOff)
+{
+	LTVector v(0.0f, 0.0f, 0.0f);
+	if (!bEvenIfOff && GetConsoleFloat("VRHandsFromEye", 1.0f) <= 0.0f) return v;
+	if (g_vtVRHeadPos.GetFloat() <= 0.0f || !VRShared::IsLive() || !s_bHeadRefValid || !m_hCamera) return v;
+	const VRSharedState& hs = VRShared::State();
+	const float fUnits = (g_vtVRUnitMM.GetFloat() > 0.01f) ? (1000.0f / g_vtVRUnitMM.GetFloat()) : 58.75f;
+	float fCarryX = 0.0f, fCarryZ = 0.0f;
+	VRRoom::Carried(&fCarryX, &fCarryZ);
+	const float px = (hs.fHeadPosX - s_fHeadRefX - fCarryX) * fUnits;
+	const float py = (hs.fHeadPosY - s_fHeadRefY) * fUnits;
+	const float pz = -(hs.fHeadPosZ - s_fHeadRefZ - fCarryZ) * fUnits;
+	LTRotation rCam;
+	g_pLTClient->GetObjectRotation(m_hCamera, &rCam);
+	LTVector cU, cR, cF;
+	g_pLTClient->GetRotationVectors(&rCam, &cU, &cR, &cF);
+	LTRotation rYawOnly;
+	g_pLTClient->SetupEuler(&rYawOnly, 0.0f, (float)atan2(cF.x, cF.z), 0.0f);
+	LTVector vYU, vYR, vYF;
+	g_pLTClient->GetRotationVectors(&rYawOnly, &vYU, &vYR, &vYF);
+	v = vYR * px + LTVector(0.0f, 1.0f, 0.0f) * py + vYF * pz;
+	const bool bCrouchOn = GetConsoleInt("VRRealCrouch", 0) > 0
+		&& !(m_MoveMgr.GetVehicleMgr() && m_MoveMgr.GetVehicleMgr()->IsVehiclePhysics());
+	if (bCrouchOn && !s_bVRDuckButton && m_fCamDuck < 0.0f)
+		v.y -= m_fCamDuck;
+	return v;
+}
+
 void CGameClientShell::VRPublishModels()
 {
 	if (g_vtVRModels.GetFloat() <= 0.0f) return;
@@ -4393,7 +4448,11 @@ void CGameClientShell::VRPublishModels()
 
 	if (bMainMenu && m_hInterfaceCamera)
 		g_pLTClient->GetObjectPos(m_hInterfaceCamera, &vEye);
-	else if (m_hCamera) g_pLTClient->GetObjectPos(m_hCamera, &vEye);
+	else if (m_hCamera)
+	{
+		g_pLTClient->GetObjectPos(m_hCamera, &vEye);
+		if (!bFolder) vEye += VRHeadOffsetNow();	// the real eye (see VRHeadOffsetNow)
+	}
 	else if (hPlayer) g_pLTClient->GetObjectPos(hPlayer, &vEye);
 
 	if (bFolder)
@@ -4678,7 +4737,7 @@ void CGameClientShell::VRPublishModels()
 	// 4096, the array's size. These appends stopped at 1024 after the search was
 	// widened to 4096, and the M05S01 docks (34 rain volumes of splash sprites)
 	// return ~1120 objects: the gun was never appended, so it was not drawn and
-	// its flash, tracer and casings sat at a stale place.
+	// its flash, tracer and casings sat at a stale place (headset, 24 September).
 	// Sunglasses that are ON are on the face, not in the hand: not drawn.
 	if (g_vtVRViewModel.GetFloat() > 0.0f && nOut < 4096 && !bMainMenu && !VRPhysical::GlassesWorn())
 	{
@@ -4726,7 +4785,7 @@ void CGameClientShell::VRPublishModels()
 	// its sockets by CWeaponModel::UpdateMods. The sphere query never returns
 	// a camera-relative object and nothing appended these, so the Hampton
 	// Carbine drew without its scope and the P38 without its silencer
-	//. Appended after the gun, placed below
+	// (headset testing, 21 September). Appended after the gun, placed below
 	// through the gun's own rigid transform, so they sit on its sockets in
 	// the hand. Only while the game shows them: a mod the player lacks is
 	// kept hidden by the same code that hides it flat.
@@ -4764,7 +4823,7 @@ void CGameClientShell::VRPublishModels()
 		// them apart by node count (more than twelve = a rig) and the swaying
 		// M01S04 palms have more than twelve: two down the canyon sat either
 		// side of 4000 units from the path and blinked in and out as the
-		// player walked. VRModelRangeAnimated 0: no
+		// player walked (headset, 24 September). VRModelRangeAnimated 0: no
 		// second range.
 		// HOW FAR: -1 (the default) is AS FAR AS THE LEVEL'S FOG LETS YOU SEE -
 		// FogFarZ when fog is on (nothing is visible past it in retail either;
@@ -4887,7 +4946,7 @@ void CGameClientShell::VRPublishModels()
 		// gate or a lift never has its attachments processed at all - and
 		// whatever hangs off it keeps the position it held when the level
 		// loaded. That is the door handle the tester watched stay in mid-air while
-		// the door swung away from it, and the lock that stayed on a gate the player
+		// the door swung away from it, and the lock that stayed on a gate he
 		// had already shot it off.
 		//
 		// The same defect as the fez above, one object type over: the fix
@@ -5039,7 +5098,7 @@ void CGameClientShell::VRPublishModels()
 
 	// HOW MANY THINGS THE PLAYER TURNS OUT TO OWN. GetAttachments is a server
 	// notion and this is the client; if it comes back with only the player
-	// himself then the player test can never fire and every rule built on it is
+	// himself then the owner test can never fire and every rule built on it is
 	// inert - which looks exactly like the rule being wrong.
 	{
 		static uint32 s_nSaidOwned = 0xFFFFFFFFu;
@@ -5155,10 +5214,25 @@ void CGameClientShell::VRPublishModels()
 					const float U = (g_vtVRHandPosScale.GetFloat() > 0.0f)
 						? g_vtVRHandPosScale.GetFloat() : 3.0f;
 
+					float dPalm[3];
+					VRShared::GunPalmShift(dPalm);
+					if (GetConsoleFloat("VRDebugTrace", 0.0f) > 0.0f)
+					{
+						float fCX = 0.0f, fCZ = 0.0f; VRRoom::Carried(&fCX, &fCZ);
+						LTVector vCam(0.0f, 0.0f, 0.0f);
+						HOBJECT hCamT = m_hCamera;
+						if (hCamT) g_pLTClient->GetObjectPos(hCamT, &vCam);
+						const LTVector vTrueEye = vCam + VRHeadOffsetNow(true);
+						VRLog::Msg("VRTrace: true eye %.3f %.3f %.3f", vTrueEye.x, vTrueEye.y, vTrueEye.z);
+						VRLog::Msg("VRTrace: input seq %u hand %.4f %.4f %.4f ypr %.1f %.1f %.1f palm %.4f %.4f %.4f grip %u head %.4f %.4f %.4f carry %.4f %.4f cam %.2f %.2f %.2f",
+							(unsigned)vs.nSequence, vh.fPosX, vh.fPosY, vh.fPosZ, vh.fYawDeg, vh.fPitchDeg, vh.fRollDeg,
+							dPalm[0], dPalm[1], dPalm[2], (unsigned)vs.nGripValid[1], vs.fHeadPosX, vs.fHeadPosY, vs.fHeadPosZ,
+							fCX, fCZ, vCam.x, vCam.y, vCam.z);
+					}
 					LTVector vHand;
-					vHand.x =  ((vh.fPosX - vs.fHeadPosX)) * U;
-					vHand.y =  ((vh.fPosY - vs.fHeadPosY)) * U;
-					vHand.z = -((vh.fPosZ - vs.fHeadPosZ)) * U;	// OpenXR -Z fwd
+					vHand.x =  ((vh.fPosX + dPalm[0] - vs.fHeadPosX)) * U;
+					vHand.y =  ((vh.fPosY + dPalm[1] - vs.fHeadPosY)) * U;
+					vHand.z = -((vh.fPosZ + dPalm[2] - vs.fHeadPosZ)) * U;	// OpenXR -Z fwd
 
 					// THE CAMERA OBJECT DOES NOT CARRY THE HEAD. This used to
 					// undo the head's yaw "into camera space", on the theory
@@ -5167,7 +5241,7 @@ void CGameClientShell::VRPublishModels()
 					// its __finally, and this runs from PostUpdate and from
 					// RenderCamera BEFORE that, so vCamR/U/F are the BODY's.
 					// The fire direction (WeaponModel.cpp) uses the hand's
-					// ABSOLUTE angles in this same basis, and shoots where the player
+					// ABSOLUTE angles in this same basis, and shoots where he
 					// points. A position rotated by the head yaw is therefore
 					// wrong by exactly the head yaw: look 30 degrees to the
 					// right of the body and the drawn gun sits 30 degrees to
@@ -5210,7 +5284,7 @@ void CGameClientShell::VRPublishModels()
 			// THE HANDLEBARS SIT LOWER IN A HEADSET. The flat game hangs the
 			// ridden model from the camera where a monitor crops it; in a headset
 			// its cut-off lower edge showed and the bars rode high, like a prop
-			// held up. World units, straight down the
+			// held up (headset, 24 September). World units, straight down the
 			// camera's up axis. The nodes are placed from their OWN positions
 			// relative to this origin, so moving the origin alone cancels out
 			// (desk, 24 September: 0 and 10 drew identical frames); the node
@@ -5220,7 +5294,7 @@ void CGameClientShell::VRPublishModels()
 			{
 				p.y -= g_vtVRVehicleDrop.GetFloat() / K;
 				// ...AND NEARER. Lowered alone it still sat far out, and from there
-				// the underside and the cut-off arms showed.
+				// the underside and the cut-off arms showed (headset, 24 September).
 				p.z -= g_vtVRVehicleBack.GetFloat() / K;
 			}
 			p = vEye + (vCamR * p.x + vCamU * p.y + vCamF * p.z) * K;
@@ -5248,7 +5322,7 @@ void CGameClientShell::VRPublishModels()
 		// so GetObjectPos hands back a CAMERA-SPACE position - a few units from
 		// the map origin, wherever the player happens to be. The view weapon
 		// above converts its own; nothing converted anything else, so the flash
-		// was published at the origin every time it fired. 
+		// was published at the origin every time it fired. Headset testing, 11 September:
 		// the muzzle flash was not attached to the gun.
 		//
 		// The census that found this is in the sprite path: 0 camera-relative
@@ -5270,7 +5344,7 @@ void CGameClientShell::VRPublishModels()
 			const LTVector vWas = p;
 			// THE MUZZLE FLASH GOES ON THE BARREL, not through the re-base.
 			//
-			// with the tracer fixed, the trail came out
+			// Headset testing, 19 September: with the tracer fixed, the trail came out
 			// of the barrel and the muzzle flash did not. They are different
 			// objects taking different roads - the tracer starts at
 			// m_vFlashPos, which is now the drawn barrel end, while the flash is
@@ -5330,7 +5404,7 @@ void CGameClientShell::VRPublishModels()
 				p = VRPrims_RebasePointLast(p);
 			}
 
-			// WHICH BRANCH, AND WHY. muzzle flashes were
+			// WHICH BRANCH, AND WHY. Headset testing, 19 September: muzzle flashes were
 			// way off to the right, about twenty feet away, unchanged by
 			// making the muzzle single-sourced - so the flash is not reading
 			// the muzzle at all and the reasoning about which object it is has
@@ -5340,9 +5414,9 @@ void CGameClientShell::VRPublishModels()
 			// camera-relative point by fK (17), and an authored muzzle offset
 			// of about <2,-2,12> times 17 is <34,-34,204> - 204 units forward
 			// and 34 right, which is 11 feet out and to the side. That is the
-			// shape of what the tester is describing.
+			// shape of what he is describing.
 			//
-			// The tester's earlier log said "flash handle NO" while particles and light
+			// His earlier log said "flash handle NO" while particles and light
 			// were present, so the three objects may not agree on the branch.
 			// This prints each one separately for that reason.
 			if (bIsFlash)
@@ -5403,7 +5477,7 @@ void CGameClientShell::VRPublishModels()
 				g_pLTClient->GetRotationVectors(&rAxis, &vAU, &vAR, &vAF);
 				// The engine's dims for an attachment are its animation box, wider
 				// than the tube by a lot: at the full dims the eyepiece disc drew
-				// 16 cm across on the gun. Fractions,
+				// 16 cm across on the gun (headset, 21 September). Fractions,
 				// tunable: VRScopeRadiusK of the narrower half-dim for the disc,
 				// VRScopeEyepieceK / VRScopeObjectiveK of the half-length for the
 				// two ends (the objective a little AHEAD of the tube, so the pass
@@ -5495,7 +5569,7 @@ void CGameClientShell::VRPublishModels()
 			// In the headset, casings still disappear after about two full magazine
 			// unloads (around 20 or so). The per-type ceiling in
 			// s_nDynArrayMaxNums says 200 for casings, and SFX_SHELLCASING_ID
-			// maps straight to that row, so the number the player sees is not that
+			// maps straight to that row, so the number he sees is not that
 			// cap. Reading more code was not converging; this counts them.
 			{
 				static float s_fNextFXCount = 0.0f;
@@ -5624,7 +5698,7 @@ void CGameClientShell::VRPublishModels()
 			// ...THE DRAWN GUN'S right, WITH ITS ROLL. GetFireInfo's basis is
 			// the aim - yaw and pitch only - so when the hand rolled the gun
 			// rolled and the plane did not, and the mirrored hand turned the
-			// OTHER way off the grip. The weapon
+			// OTHER way off the grip (headset, 27 September). The weapon
 			// object's own rotation (yaw, pitch, roll; camera-relative, as the
 			// publish applies it) expressed in the camera's basis is the gun.
 			{
@@ -5783,7 +5857,7 @@ void CGameClientShell::VRPublishModels()
 			// gun's own frame - but reads s_RebaseLast, the pose from the
 			// PREVIOUS frame. A one-frame rotation lag puts the muzzle out by
 			// about r * dTheta, which is zero when the gun is still and grows
-			// with the arm length as it turns. That is the report exactly,
+			// with the arm length as it turns. That is his sentence exactly,
 			// and it is why every static capture at my desk looked right: a
 			// still hand has no lag to show.
 			//
@@ -5800,8 +5874,8 @@ void CGameClientShell::VRPublishModels()
 				// coincidence: the offset is expressed in the model's own units
 				// and everything drawn from it has been scaled since, so the
 				// offset has to be scaled the same way or it lands short by
-				// exactly that factor - which is what a flash at the
-				// magazine instead of the muzzle looks like on a long weapon.
+				// exactly that factor - which is what "the flash is at the
+				// magazine, not the muzzle" looks like on a long weapon.
 				//
 				// VRMuzzleScale overrides it for testing; 0 means "use the
 				// weapon's own scale", which is the honest default because it is
@@ -5872,7 +5946,7 @@ void CGameClientShell::VRPublishModels()
 			// exactly this bit when it clears FLAG_VISIBLE.
 			//
 			// It is a third of the instance-frames on M14S02, so this is not a
-			// theoretical exception. The player list is kept as well, because
+			// theoretical exception. The owner list is kept as well, because
 			// it covers the player's own object rather than its attachments.
 			if (i == nViewWeapon || bViewVeh || bViewMod)
 			{
@@ -5908,13 +5982,13 @@ void CGameClientShell::VRPublishModels()
 			// the hand-held weapon is the ONLY weapon we have and taking it
 			// away leaves the player empty-handed, which is worse than it
 			// being in the wrong place. Measured: it is what disappeared when
-			// this rule was first written without the player test.
+			// this rule was first written without the owner test.
 			// WHAT IS SITTING INSIDE THE PLAYER'S HEAD, and what its flags are.
 			//
 			// Cate's carried Walther, SMG and S&W all draw floating in front of
 			// the camera, and GetAttachments does not know about them - the
 			// client reports 2 objects owned by the player, the player and one
-			// attachment. So the player test cannot reach them and something
+			// attachment. So the owner test cannot reach them and something
 			// else has to. This says what they are.
 			if (i != nViewWeapon && !bViewVeh)
 			{
@@ -5965,7 +6039,7 @@ void CGameClientShell::VRPublishModels()
 				// Those are her Walther, her SMG and her S&W, and the
 				// exemption drew every one of them floating in front of the
 				// camera. GetAttachments cannot reach them either - the client
-				// reports the player owning 2 objects - so the player test was
+				// reports the player owning 2 objects - so the owner test was
 				// never going to catch this. The flag is the answer.
 				//
 				// KEPT ONLY AS THE FALLBACK. With no view model the hand-held
@@ -6113,6 +6187,41 @@ void CGameClientShell::VRPublishModels()
 				const int nWeaponNow = (i == nViewWeapon) ? (int)m_weaponModel.GetWeaponId() : -1;
 				const bool bSayNames = (s_hNamesSaid != objs[i] || s_nNamesSaidWeapon != nWeaponNow);
 				char szNames[600] = ""; int nNamesLen = 0;
+				// THE GUN'S MOVING PARTS (VRDebugGunParts 1): each node after the gun's
+				// root, in the root's own frame, tracked for its least and most; when
+				// the weapon changes, the ones that moved are listed. The game's own
+				// fire and reload animations move the slide, the bolt and the clip,
+				// and most models name them nothing better than "cyl3".
+				static char  s_szPart[64][32];
+				static float s_fPartMin[64][3], s_fPartMax[64][3];
+				static int   s_nParts = 0, s_nPartsWeapon = -1;
+				const bool bPartsOn = GetConsoleFloat("VRDebugGunParts", 0.0f) > 0.0f && i == nViewWeapon;
+				if (bPartsOn && nWeaponNow != s_nPartsWeapon)
+				{
+					if (s_nPartsWeapon >= 0)
+					{
+						char szW[64] = "";
+						VRWeaponSlugForId(s_nPartsWeapon, szW, sizeof(szW));
+						int nMoved = 0;
+						for (int k = 0; k < s_nParts; ++k)
+						{
+							const float rx = s_fPartMax[k][0] - s_fPartMin[k][0];
+							const float ry = s_fPartMax[k][1] - s_fPartMin[k][1];
+							const float rz = s_fPartMax[k][2] - s_fPartMin[k][2];
+							if (rx > 0.15f || ry > 0.15f || rz > 0.15f)
+							{
+								++nMoved;
+								VRLog::Msg("VRGunParts: %s part '%s' moved: right %.2f..%.2f, up %.2f..%.2f, forward %.2f..%.2f (gun frame, units)",
+									szW, s_szPart[k], s_fPartMin[k][0], s_fPartMax[k][0], s_fPartMin[k][1], s_fPartMax[k][1],
+									s_fPartMin[k][2], s_fPartMax[k][2]);
+							}
+						}
+						VRLog::Msg("VRGunParts: %s - %d of %d parts moved", szW, nMoved, s_nParts);
+					}
+					s_nPartsWeapon = nWeaponNow;
+					s_nParts = 0;
+				}
+				int nPartIdx = 0;
 				while (g_pLTClient->GetNextModelNode(objs[i], hA, &hAN) == LT_OK)
 				{
 					hA = hAN;
@@ -6151,6 +6260,27 @@ void CGameClientShell::VRPublishModels()
 						vGunRootPos = ta.m_Pos;
 						rGunRoot = ta.m_Rot;
 						strncpy(szGunRoot, szN, 63); szGunRoot[63] = 0;
+					}
+					if (bPartsOn && bGunRootFound && nPartIdx < 64)
+					{
+						LTVector vRU, vRR, vRF;
+						g_pLTClient->GetRotationVectors(&rGunRoot, &vRU, &vRR, &vRF);
+						const LTVector d = ta.m_Pos - vGunRootPos;
+						const float l[3] = { d.x * vRR.x + d.y * vRR.y + d.z * vRR.z,
+											 d.x * vRU.x + d.y * vRU.y + d.z * vRU.z,
+											 d.x * vRF.x + d.y * vRF.y + d.z * vRF.z };
+						const int k = nPartIdx++;
+						if (k >= s_nParts)
+						{
+							s_nParts = k + 1;
+							strncpy(s_szPart[k], szN, 31); s_szPart[k][31] = 0;
+							for (int a = 0; a < 3; ++a) s_fPartMin[k][a] = s_fPartMax[k][a] = l[a];
+						}
+						for (int a = 0; a < 3; ++a)
+						{
+							if (l[a] < s_fPartMin[k][a]) s_fPartMin[k][a] = l[a];
+							if (l[a] > s_fPartMax[k][a]) s_fPartMax[k][a] = l[a];
+						}
 					}
 					if (strcmp(szL, "wristr") == 0) nRank = 4;
 					else if (strstr(szL, "gun") || strstr(szL, "weapon") || strstr(szL, "pistol")
@@ -6326,7 +6456,7 @@ void CGameClientShell::VRPublishModels()
 					// should point straight down +z, the hand's forward. One
 					// constant (VRGunTrimPitch 11.7) fitted the Walther and
 					// left the sub-machine gun pointing below its aim dot
-					//. The correction that swings that
+					// (headset testing, 14 September). The correction that swings that
 					// line onto +z is folded into the rest orientation, so
 					// every node comes along. Tried in both senses of the
 					// engine's axis rotation and the one that lands is kept.
@@ -6337,7 +6467,7 @@ void CGameClientShell::VRPublishModels()
 					// quarter-unit was taken as the barrel: the gun was swung 37
 					// degrees up and 15 across, differently on each run (32/-16,
 					// 37/-15), and the flash, the burst and the shot went with the
-					// swing while the drawn gun did not.
+					// swing while the drawn gun did not (headset, 21 September).
 					// VRAutoTrim@<weapon> 0 in vrtune.cfg leaves that weapon as
 					// authored; the guns tuned on top of the alignment keep it.
 					static VRWeaponVar s_vrAutoTrim;
@@ -6367,7 +6497,7 @@ void CGameClientShell::VRPublishModels()
 						// under 0.4 units), so it added nothing; and the origin
 						// -> muzzle line taken from the CAMERA was the muzzle's
 						// place below the eye, not the barrel. For the Walther
-						// this line should come out near the +11.7 degrees the player's
+						// this line should come out near the +11.7 degrees his
 						// validated trim took off it.
 						// THE GUN'S SHAPE IN THE HAND'S FRAME, once per weapon: every
 						// non-arm node's offset from the root, so the barrel line
@@ -6404,7 +6534,7 @@ void CGameClientShell::VRPublishModels()
 						// the root sits in line with the tip (within a quarter
 						// of the distance, laterally) - which is the Walther,
 						// whose root is its frame at barrel height, and whose
-						// root->tip line is the one the tester's validated trim aligned;
+						// root->tip line is the one his validated trim aligned;
 						// otherwise the farthest node that IS in line with the
 						// tip - which is the sub-machine gun, whose root is the
 						// grip: root->tip climbed 16 degrees while its barrel
@@ -6651,6 +6781,7 @@ void CGameClientShell::VRPublishModels()
 				// drop the vertices bound to it instead of placing them at the
 				// world origin.
 				LTransform tf;
+				bool bHideGunPart = false;
 				if (bPlayerArm)
 				{
 					for (int sd = 0; sd < 2; ++sd)
@@ -6784,6 +6915,23 @@ void CGameClientShell::VRPublishModels()
 						vLocalRel.x = mRoot.m[0][0]*d.x + mRoot.m[1][0]*d.y + mRoot.m[2][0]*d.z;
 						vLocalRel.y = mRoot.m[0][1]*d.x + mRoot.m[1][1]*d.y + mRoot.m[2][1]*d.z;
 						vLocalRel.z = mRoot.m[0][2]*d.x + mRoot.m[1][2]*d.y + mRoot.m[2][2]*d.z;
+						// THE GUN'S OWN MOVING PARTS, worked by the hands (VRGunParts.h):
+						// the slide or bolt back along the gun as far as the off hand has
+						// pulled it (or locked back when fired empty), and the gun's own
+						// magazine gone while the clip is out.
+						if (i == nViewWeapon && (VRPhysical::SlideBack() > 0.0f || VRPhysical::MagOut()))
+						{
+							char szPart[64] = "", szGunSlug[64] = "";
+							g_pLTClient->GetModelNodeName(objs[i], hNode, szPart, sizeof(szPart));
+							VRWeaponSlugForId((int)m_weaponModel.GetWeaponId(), szGunSlug, sizeof(szGunSlug));
+							float fTravel = 0.0f;
+							const VRGunParts::Role eRole = VRGunParts::RoleOf(szGunSlug, szPart, &fTravel);
+							if (eRole == VRGunParts::SLIDE)
+								vLocalRel.z -= fTravel * VRPhysical::SlideBack();
+							else if (eRole == VRGunParts::MAGAZINE && VRPhysical::MagOut()
+									 && GetConsoleFloat("VRGunHideMag", 1.0f) > 0.0f)
+								bHideGunPart = true;
+						}
 						// back out with the object's rotation TIMES THE ROOT'S REST
 						// orientation (captured above): R_obj * R_rest * rel
 						LTMatrix mPlace = mObj;
@@ -6885,7 +7033,7 @@ void CGameClientShell::VRPublishModels()
 								g_pLTClient->GetRotationVectors(&rBarrel, &vU, &vBR, &vF);
 								// FROM THE OBJECT'S ORIGIN, NOT A NODE. Anchored to the first
 								// node the lens breathed with the idle animation while the
-								// tube did not. The origin is where
+								// tube did not (headset, 21 September). The origin is where
 								// the mods are placed from and it does not animate.
 								const LTVector vL0 = s_ModPlace.vOrig * s_ModPlace.K;
 								const LTVector vAnchor = vEye + (vCamR * vL0.x + vCamU * vL0.y + vCamF * vL0.z) + s_ModPlace.vGripW;
@@ -6937,6 +7085,16 @@ void CGameClientShell::VRPublishModels()
 					vn.m[r * 4 + 2] = mat.m[r][2];
 				}
 				vn.m[3] = tf.m_Pos.x; vn.m[7] = tf.m_Pos.y; vn.m[11] = tf.m_Pos.z;
+				// A part taken off (the magazine while the clip is out): the zero
+				// matrix the renderer drops, as for an unposed node.
+				if (bHideGunPart) { memset(vn.m, 0, sizeof(vn.m)); bHideGunPart = false; }
+				if (i == nViewWeapon && s_nGunNodes == 0 && GetConsoleFloat("VRDebugTrace", 0.0f) > 0.0f)
+				{
+					const LTVector a = tf.m_Pos - vEye;
+					VRLog::Msg("VRTrace: gun node0 %.2f %.2f %.2f slide %.2f mag %d anim state %d",
+						a.Dot(vCamR), a.Dot(vCamU), a.Dot(vCamF), VRPhysical::SlideBack(),
+						VRPhysical::MagOut() ? 1 : 0, (int)m_weaponModel.GetState());
+				}
 				// THE DRAWN GUN'S DIRECTION, FROM ITS OWN NODES. In the headset the gun
 				// still did not pitch up and down correctly, after two
 				// opposite fixes judged by eye. The muzzle is the node farthest
@@ -6950,7 +7108,7 @@ void CGameClientShell::VRPublishModels()
 					// The running centroid; the last node of the walk leaves the
 					// real one behind. Shell casings leave the weapon's BODY,
 					// not its barrel, and this is the only point on the gun
-					// that scales with whichever model is in the player's hand.
+					// that scales with whichever model is in his hand.
 					VRPrims_NoteDrawnGunCentre(s_vGunSum / (float)s_nGunNodes);
 					// ALONG THE BARREL, NOT AWAY FROM THE EYE.
 					//
@@ -6974,12 +7132,12 @@ void CGameClientShell::VRPublishModels()
 					// A player-view weapon model carries the ARM and HAND
 					// skeleton as well as the weapon, so "the node furthest
 					// along the barrel" can land on a fingertip or the wrist.
-					// 
+					// Headset testing, 19 September, on the walther_smg and the sterling:
 					// the tracers came out below and behind the gun - and a
 					// dump of the node layout came back full of pointerR1..R4
 					// and RwristVolY, every one of them BEHIND the first node.
 					// It also explains why the chosen node moved between
-					// weapons (17.9 units on the player's, 23.6 on the Sterling here,
+					// weapons (17.9 units on his, 23.6 on the Sterling here,
 					// 60.3 on another run): it was picking whichever bit of
 					// hand happened to reach furthest.
 					//
@@ -7017,16 +7175,16 @@ void CGameClientShell::VRPublishModels()
 					//
 					// So: learn the winning node's NAME on the first frame with
 					// a given weapon, then follow that node by name. It also
-					// stops the choice changing while the player fires, which is the one
+					// stops the choice changing while he fires, which is the one
 					// moment it would be seen.
 					const int nWepNow = (int)m_weaponModel.GetWeaponId();
 
 					// THE WHOLE GUN'S NODE LAYOUT, ONCE PER WEAPON.
 					//
-					// 
+					// Headset testing, 19 September, on the walther_smg and the sterling:
 					// the tracers came out below and behind the gun. The node
 					// picked as the muzzle is 17.9 units from the gun's origin
-					// on the tester's weapon where the Sterling measured 23.6 at the desk,
+					// on his weapon where the Sterling measured 23.6 at my desk,
 					// so the choice differs per weapon and picking wrong is
 					// invisible from a single number.
 					//
@@ -7034,7 +7192,7 @@ void CGameClientShell::VRPublishModels()
 					// into the gun's own right/up/forward. The barrel tip is
 					// whichever has the largest FORWARD; if the one being chosen
 					// has a NEGATIVE forward it is behind the grip, which is
-					// exactly what the tester is describing.
+					// exactly what he is describing.
 					{
 						static int s_nDumpWeapon = -1;
 						static int s_nDumped = 0;
@@ -7065,7 +7223,7 @@ void CGameClientShell::VRPublishModels()
 						// authored per-weapon offset. They do not agree, there
 						// is no ordering between them, and whichever ran last
 						// owned the frame. The muzzle flash reads this value.
-						// muzzle flashes were way off to
+						// Headset testing, 19 September: muzzle flashes were way off to
 						// the right, about twenty feet away - and the rejected
 						// muzzles the tracer guard logged that evening were
 						// 286 and 371 units out, which is 16 to 21 feet. The reported
@@ -7103,7 +7261,7 @@ void CGameClientShell::VRPublishModels()
 						// m_vFlashPos, and every attempt to compute that from
 						// an authored offset has had to agree with those three
 						// separately - which is what put it 13 feet out, and
-						// then a few inches out.
+						// then a few inches out (headset testing, 19 September).
 						// ONLY WHILE WE ARE STILL LEARNING. Once a node is
 						// settled it owns the muzzle, and a later node winning
 						// this frame's projection test must not overwrite it -
@@ -7302,13 +7460,44 @@ void CGameClientShell::VRPublishModels()
 				float dt = g_pLTClient->GetFrameTime();
 				if (dt < 0.0f) dt = 0.0f;
 				if (dt > 0.1f) dt = 0.1f;
+				// Standing, the head held away from the body for a moment brings
+				// the body round to it, the way feet follow a turn. Without it a
+				// player who turned on the spot kept her body 45 degrees off to
+				// the side until they next walked.
+				static float s_fAwaySecs = 0.0f;
+				static bool  s_bSettling = false;
+				const float kSettle = GetConsoleFloat("VRBodySettleDeg", 20.0f) * 0.01745329f;
+				const float kAfter  = GetConsoleFloat("VRBodySettleSecs", 0.6f);
 				if (VRWalk::Moving())
+				{
 					s_fTurn += d * (1.0f - (float)exp(-dt / 0.1f));
+					s_fAwaySecs = 0.0f;
+					s_bSettling = false;
+				}
 				else
 				{
 					const float kLim = 45.0f * 0.01745329f;
 					if (d >  kLim) s_fTurn += d - kLim;
 					if (d < -kLim) s_fTurn += d + kLim;
+					s_fAwaySecs = (fabs(d) > kSettle) ? s_fAwaySecs + dt : 0.0f;
+					if (kAfter >= 0.0f && s_fAwaySecs > kAfter && !s_bSettling)
+					{
+						s_bSettling = true;
+						if (s_nSaid < 6)
+						{
+							++s_nSaid;
+							VRLog::Msg("VRBody: standing turned %.0f deg from the head - settling", d * 57.29578f);
+						}
+					}
+					if (s_bSettling)
+					{
+						// Once started, all the way round: it stops facing the head.
+						float e = VRWalk::YawOffset() - s_fTurn;
+						while (e >  kPi) e -= 2.0f * kPi;
+						while (e < -kPi) e += 2.0f * kPi;
+						s_fTurn += e * (1.0f - (float)exp(-dt / 0.25f));
+						if (fabs(e) < 0.02f) { s_bSettling = false; s_fAwaySecs = 0.0f; }
+					}
 				}
 				while (s_fTurn >  kPi) s_fTurn -= 2.0f * kPi;
 				while (s_fTurn < -kPi) s_fTurn += 2.0f * kPi;
@@ -7453,12 +7642,12 @@ void CGameClientShell::VRPublishModels()
 		// (see nHH). With none - the fists, or nothing drawn - the gun hand has
 		// no grip to go to: put on the drawn fist, it bobbed with the fist's
 		// idle and moved at the view weapon's scale, so it slid against the
-		// controller and never rolled. Then it is
+		// controller and never rolled (headset, 27 September). Then it is
 		// placed like the other hand: locked to its own controller.
 		// BY THE GUN YOU HOLD, not by her hand-held copy of it: that copy is
 		// not always there to find, and the answer flipped back and forth with
 		// the pistol drawn - the gun hand dropped 15 cm behind the controller
-		// and the pistol floated ahead of it. A view
+		// and the pistol floated ahead of it (headset, 27 September). A view
 		// weapon with a grip that is not the fists is a gun in the hand.
 		bool bGunHeld = false;
 		if (bHaveGrip)
@@ -7558,7 +7747,7 @@ void CGameClientShell::VRPublishModels()
 			// A LITTLE STRETCH, both bones alike, up to VRBodyStretch: her arm
 			// is shorter than the player's, and locked straight short of the
 			// controller it held a zombie's pose and let the gun move away
-			// from the hand.
+			// from the hand (headset, 27 September).
 			float fArmStretch = 1.0f;
 			{
 				const float fMaxS = (g_vtVRBodyStretch.GetFloat() > 1.0f) ? g_vtVRBodyStretch.GetFloat() : 1.0f;
@@ -7620,7 +7809,7 @@ void CGameClientShell::VRPublishModels()
 				// THE OTHER HAND IS LOCKED TO ITS CONTROLLER: all three axes of
 				// its rotation come from the controller, not from the forearm.
 				// It first followed the forearm, then rolled with the controller
-				// about the forearm; the wrist still bent
+				// about the forearm (headset, 27 September); the wrist still bent
 				// with the arm rather than the hand. Now:
 				//   - the hand's LONG axis (the node axis lying along the forearm)
 				//     goes along the controller's forward;
@@ -7817,6 +8006,13 @@ void CGameClientShell::VRPublishModels()
 						sd ? "left" : "right", a.Dot(vCamR), a.Dot(vCamU), a.Dot(vCamF),
 						b.Dot(vCamR), b.Dot(vCamU), b.Dot(vCamF), c.Dot(vCamR), c.Dot(vCamU), c.Dot(vCamF), fWant, L1 + L2);
 				}
+				if (GetConsoleFloat("VRDebugTrace", 0.0f) > 0.0f)
+				{
+					const LTVector a = vT - vEye, b = vNewE - vEye;
+					VRLog::Msg("VRTrace: %s hand %.2f %.2f %.2f elbow %.2f %.2f %.2f",
+						sd ? "left" : "right", a.Dot(vCamR), a.Dot(vCamU), a.Dot(vCamF),
+						b.Dot(vCamR), b.Dot(vCamU), b.Dot(vCamF));
+				}
 				static int s_nArmSaid = 0;
 				if (s_nArmSaid < 4)
 				{
@@ -7896,7 +8092,42 @@ void CGameClientShell::VRPublishModels()
 						g_vtVRBodyBackEyes.GetFloat() * fBackT);
 			}
 			const float fEyesBack = g_vtVRBodyBackEyes.GetFloat() * fBackT * 58.75f;
-			if (bFP && fEyesBack != 0.0f
+			// HER SHOULDERS WHERE A PERSON'S ARE. Her model is taller than the
+			// camera's height makes her: her shoulders stood 9-13 cm under the eyes
+			// against a person's 22, and looking down even a little her chest came
+			// up to the chin (headset). The eyes' copy is scaled about her feet so
+			// her shoulders sit VRBodyShoulderDrop metres under the standing eye -
+			// the camera's, not the tracked head's, so tipping the head does not
+			// move her body. Feet stay on the floor; the mirror keeps her as she is.
+			float fScaleE = 1.0f;
+			LTVector vPivotE(0.0f, 0.0f, 0.0f);
+			const float fShDrop = GetConsoleFloat("VRBodyShoulderDrop", 0.22f);
+			if (bFP && fShDrop > 0.0f && nArmIdx[0][0] >= 0 && nArmIdx[1][0] >= 0)
+			{
+				const VRModelNode& sR = s_frame.nodes[nArmIdx[0][0]];
+				const VRModelNode& sL = s_frame.nodes[nArmIdx[1][0]];
+				const float fShY = (sR.m[7] + sL.m[7]) * 0.5f;
+				float fFootY = 1.0e9f;
+				for (uint32 z = 0; z < mi.nNodeCount; ++z)
+				{
+					const VRModelNode& bn = s_frame.nodes[mi.nNodeFirst + z];
+					if (bn.m[0] == 0.0f && bn.m[1] == 0.0f && bn.m[2] == 0.0f) continue;	// unposed
+					if (bn.m[7] < fFootY) fFootY = bn.m[7];
+				}
+				const float fStandEyeY = vEye.y - VRHeadOffsetNow().y;
+				const float fWantY = fStandEyeY - fShDrop * 58.75f;
+				if (fFootY < 1.0e8f && fShY - fFootY > 20.0f && fShY > fWantY)
+				{
+					fScaleE = (fWantY - fFootY) / (fShY - fFootY);
+					if (fScaleE < 0.85f) fScaleE = 0.85f;
+					vPivotE = LTVector((sR.m[3] + sL.m[3]) * 0.5f, fFootY, (sR.m[11] + sL.m[11]) * 0.5f);
+				}
+				static int s_nSaidScaleE = 0;
+				if ((m_nVRModelFrame % 450) == 0 || s_nSaidScaleE++ < 2)
+					VRLog::Msg("VRBody: the eyes' body x%.3f so her shoulders are %.2f m under the standing eye (were %.2f)",
+						fScaleE, fShDrop, (fStandEyeY - fShY) / 58.75f);
+			}
+			if (bFP && (fEyesBack != 0.0f || fScaleE < 0.999f)
 				&& s_frame.nNodeCount + mi.nNodeCount <= VRMODELS_MAX_NODES)
 			{
 				// Along the body's facing, TURNED, when it follows the walk
@@ -7909,7 +8140,7 @@ void CGameClientShell::VRPublishModels()
 				// ...BUT NOT HER ARMS. Set back with the rest, the hands stopped
 				// 10-17 cm short of the controllers - her standing shoulders are
 				// already 20 cm behind the eye - and the gun floated in front of
-				// them. The forearms and hands stay
+				// them (headset, 27 September). The forearms and hands stay
 				// where the mirror has them, bent to the controllers; the body
 				// goes back, and the upper arms between are not drawn here.
 				// VRBodyArms 2: the WHOLE arm instead, set back with the body
@@ -7922,6 +8153,14 @@ void CGameClientShell::VRPublishModels()
 					VRModelNode vn = s_frame.nodes[mi.nNodeFirst + z];
 					if (!(z < 128 && (nArmMask[z >> 5] & (1u << (z & 31)))))
 					{
+						if (fScaleE < 0.999f && !(vn.m[0] == 0.0f && vn.m[1] == 0.0f && vn.m[2] == 0.0f))
+						{
+							for (int r = 0; r < 3; ++r)
+								for (int cc = 0; cc < 3; ++cc) vn.m[r * 4 + cc] *= fScaleE;
+							vn.m[3]  = vPivotE.x + (vn.m[3]  - vPivotE.x) * fScaleE;
+							vn.m[7]  = vPivotE.y + (vn.m[7]  - vPivotE.y) * fScaleE;
+							vn.m[11] = vPivotE.z + (vn.m[11] - vPivotE.z) * fScaleE;
+						}
 						vn.m[3] += vOffE.x; vn.m[7] += vOffE.y; vn.m[11] += vOffE.z;
 					}
 					s_frame.nodes[nFirstE + z] = vn;
@@ -7940,7 +8179,7 @@ void CGameClientShell::VRPublishModels()
 						if (k0 < 0 || k1 < 0 || k2 < 0 || k0 >= (int)mi.nNodeCount
 							|| k1 >= (int)mi.nNodeCount || k2 >= (int)mi.nNodeCount) continue;
 						// Stretched at most 1.25x: at 1.4 an arm raised to aim ran
-						// long under the view.
+						// long under the view (headset, 27 September).
 						fSt[sd] = VRArmResolve(s_frame.nodes[nFirstE + k0], s_frame.nodes[nFirstE + k1],
 											   s_frame.nodes[nFirstE + k2], vArmWant[sd], sd == 1, vCamR, vCamF,
 											   1.25f, vEye, &fEyeD[sd]);
@@ -7963,7 +8202,7 @@ void CGameClientShell::VRPublishModels()
 
 	// THE MIRROR SHOWS THE GUN YOU HOLD: a copy of the view weapon, mirrors
 	// only. Her hand-held copy of it floated beside her hand by her face
-	//, and could only ever be as right as the arm's
+	// (headset, 27 September), and could only ever be as right as the arm's
 	// guess at her wrist; the view weapon is exactly where the gun in your hand
 	// is. It keeps the view weapon's flag, so the renderer still hides the
 	// weapon's own first-person arms. Not the fists: her own hands are them.
@@ -8005,7 +8244,7 @@ void CGameClientShell::VRPublishModels()
 			w.nFlags |= VRMODEL_F_MIRRORONLY;
 			// CARRIED BY THE HAND ITSELF: gun' = hand(final) * hand(animated)^-1
 			// * gun. Rebuilt from the arm's own rotation, the gun sat beside her
-			// hand by her face in the mirror; this way it
+			// hand by her face in the mirror (headset, 27 September); this way it
 			// is wherever the hand is, held as the animation holds it - after
 			// the wrist, the tuner's GUN HAND nudge, anything.
 			bool bCarried = false;
@@ -8346,7 +8585,7 @@ void CGameClientShell::VRPublishModels()
 			// something like (12, -18, 12) - a few units from the WORLD ORIGIN,
 			// wherever the player happens to be standing. The sphere above is
 			// centred on the player's eye, so unless the level's origin is in
-			// the room with the player it misses the flash entirely, every frame, in
+			// the room with him it misses the flash entirely, every frame, in
 			// every level.
 			//
 			// That is why the first-person muzzle flash was never re-based onto
@@ -8449,7 +8688,7 @@ void CGameClientShell::VRPublishModels()
 				// rain's splash sprites wait hidden at the centre of their
 				// weather volume, ~300 units up, and are shown for 0.05 s where
 				// a drop lands: drawn regardless, the M05S01 docks had splashes
-				// frozen in the sky. In a level only -
+				// frozen in the sky (headset, 23 September). In a level only -
 				// the interface scene is left exactly as it was.
 				// VRSpriteHiddenToo 1 draws them again.
 				if (!bFolder && GetConsoleInt("VRSpriteHiddenToo", 0) == 0
@@ -8817,7 +9056,7 @@ void CGameClientShell::VRPublishModels()
 		// searching finds them. NOLF's first-person flash is a 7.5 ms
 		// particle puff plus a 200-unit light (ATTRIBUTES/FX.TXT); with
 		// neither of them reaching the renderer there has never been a
-		// first-person muzzle flash in this port. 
+		// first-person muzzle flash in this port. Headset testing, 11 September:
 		// the muzzle flash was not attached to the gun.
 		VRPrims_AddExtra(m_weaponModel.VRFlashParticleObject());
 		VRPrims_AddExtra(m_weaponModel.VRFlashLightObject());
@@ -8887,16 +9126,16 @@ void CGameClientShell::VRPublishModels()
 
 // ---- VRTypeWhenUnfocused: THE CHAT LINE WITH A HEADSET ON -------------
 //
-// with the headset on, T opens "Say:" and nothing can be
+// Headset testing, 19 September: with the headset on, T opens "Say:" and nothing can be
 // typed into it. At the desk with the game window focused it works perfectly -
-// the tester typed mpmaphole and it skipped the scene - so the bind, the input state
+// he typed mpmaphole and it skipped the scene - so the bind, the input state
 // and the text entry are all healthy.
 //
 // The variable is FOREGROUND, and it was measured rather than guessed. Opening
 // chat is a BIND, which rides DirectInput, and the proxy now acquires the
 // keyboard in BACKGROUND so it no longer needs focus. Typing rides WM_CHAR,
 // which Windows delivers only to the window holding keyboard focus. With the
-// headset live nothing the host knows about holds it: the run logged ZERO
+// headset live nothing the host knows about holds it: his run logged ZERO
 // VRChar in the client and ZERO keys at the preview, while the preview was
 // demonstrably up and covering the game window for 29 seconds.
 //
@@ -9036,7 +9275,7 @@ void CGameClientShell::VRTypeWhenUnfocused()
 	}
 }
 
-// ---- VRDebugWeapon: PUT A GUN IN THE PLAYER'S HAND, RETRIED --------------------
+// ---- VRDebugWeapon: PUT A GUN IN HIS HAND, RETRIED --------------------
 //
 // The arsenal cheat gives every weapon and selects none, so the player stands
 // there holding 'fisty_cuffs', and fists have no muzzle flash. A desk run that
@@ -9060,7 +9299,7 @@ void CGameClientShell::VRTypeWhenUnfocused()
 // CanChangeToWeapon declines an empty weapon, which is why twenty next-weapon
 // commands changed nothing and looked like a broken control.
 //
-// So: a player weapon, not the fists, that the player holds AND has ammunition for.
+// So: a player weapon, not the fists, that he holds AND has ammunition for.
 bool CGameClientShell::VRHasAnyGun()
 {
 	CPlayerStats* pStats = GetPlayerStats();
@@ -9088,7 +9327,7 @@ extern unsigned long VRMuzzleFlashShownCount();
 // line through +z: pitch -p, yaw -y. The shot, the reticle and the flash
 // stayed on +z, so every aligned gun fired above its own barrel by its
 // alignment. The P38, aligned 11.7 down: reticle, flash and burst 11.7 above
-// the barrel; an AIM of -11.7 put them on it with no
+// the barrel (headset, 21 September); an AIM of -11.7 put them on it with no
 // further press after 120 shots. This table hands WeaponModel the per-weapon
 // alignment so the shot line goes with the gun automatically; the tuner's AIM
 // is a trim on top. VRAimFollowsAlignment 0 is the old arm.
@@ -9124,11 +9363,11 @@ void CGameClientShell::VRDebugSelectWeapon()
 	const bool bNamed = !GetConsoleString("VRDebugWeaponName", "").empty();
 	if ((g_vtVRDebugWeapon.GetFloat() <= 0.0f && !bNamed) || !g_pWeaponMgr) return;
 
-	// THE NTH WEAPON THE PLAYER CAN ACTUALLY DRAW, chosen here rather than asked for
+	// THE NTH WEAPON HE CAN ACTUALLY DRAW, chosen here rather than asked for
 	// by slot or by "next".
 	//
 	// Both of the obvious routes fail silently. A slot number refuses
-	// whenever the player does not hold that exact weapon, and slot 2 of NOLF's list
+	// whenever he does not hold that exact weapon, and slot 2 of NOLF's list
 	// is not one the arsenal hands over. COMMAND_ID_NEXT_WEAPON is not a
 	// weapon command at all - it is outside the weapon command range, so
 	// OnCommandOn routes it to the weapon CHOOSER, which opens a panel and
@@ -9136,7 +9375,7 @@ void CGameClientShell::VRDebugSelectWeapon()
 	// changed nothing and read as "the player has no weapons", which was
 	// wrong twice over.
 	//
-	// So walk the weapon list, skip what the player cannot draw, and send the command
+	// So walk the weapon list, skip what he cannot draw, and send the command
 	// for the one we picked.
 	static int    s_nWant  = -1;
 	static double s_fLast  = 0.0;
@@ -9145,7 +9384,7 @@ void CGameClientShell::VRDebugSelectWeapon()
 	const int nWant = (int)g_vtVRDebugWeapon.GetFloat() + s_nSkip;
 	// BY NAME, when asked: +VRDebugWeaponName p38 picks that weapon whatever its
 	// position in the list, and ignores the P38 exclusion and the silencer skip
-	// (VRDebugNoSilencer takes the silencer off). 
+	// (VRDebugNoSilencer takes the silencer off). Headset testing, 20 September, twice:
 	// the AK47 came up instead - the P38 is the one gun the count cannot reach.
 	const std::string sByName = GetConsoleString("VRDebugWeaponName", "");
 	const bool bByName = !sByName.empty();
@@ -9269,7 +9508,7 @@ void CGameClientShell::VRDebugSelectWeapon()
 	// A LOOK THAT FOUND NOTHING IS NOT A TRY. The first version counted it,
 	// spent its whole budget in the nine seconds before a quick save had
 	// finished loading, and then reported that the player owned no guns while
-	// the player was standing there holding one.
+	// he was standing there holding one.
 	if (nFound == 0) return;
 	if (s_nTries >= 20)
 		VRLog::Msg("VRDebugWeapon %d: twenty attempts and the weapon never"
@@ -9317,7 +9556,7 @@ void CGameClientShell::VRDebugFireDrive()
 	// held" every frame, and whenever the CONTROLLER held the trigger it
 	// released it here a frame later, every frame - so the controller path
 	// pressed again, this path released again, and the weapon never saw the
-	// fire flag by the time it looked. standing next
+	// fire flag by the time it looked. Headset testing, 12 September: standing next
 	// to an enemy and pulling the trigger did nothing. The log had 200
 	// presses in two seconds and no release. Firing had been dead since this
 	// went in on the 11th. The comment above about the two paths agreeing
@@ -9340,6 +9579,12 @@ void CGameClientShell::VRDebugFireDrive()
 }
 #endif	// VR_DEBUG_TOOLS
 
+// THE MENU POINTER, for InterfaceMgr's cursor: shown while the gun hand's grip
+// is held over a menu, red while the trigger is down.
+bool g_bVRPointerShow = false;
+bool g_bVRPointerDown = false;
+int  g_nVRPointerX = 0, g_nVRPointerY = 0;	// where the dot goes, in the menu's coordinates
+
 void CGameClientShell::VRUpdateControllerInput()
 {
 	VRDebugSelectWeapon();
@@ -9357,6 +9602,17 @@ void CGameClientShell::VRUpdateControllerInput()
 			// VRCmdOn every frame. The notification is sent too, because a real
 			// key does both and some handlers listen for it.
 			VRShared::SetCommandHeld(kVRHeld[nSlot], bWant);
+			// DUCK HAS TO REACH THE SERVER. In single player the player only
+			// crouches when the server sees the duck command, and the server
+			// reads the engine's command state, which these buttons never set.
+			if (kVRHeld[nSlot] == COMMAND_ID_DUCK)
+			{
+				HMESSAGEWRITE hDuck = g_pLTClient->StartMessage(MID_PLAYER_CLIENTMSG);
+				g_pLTClient->WriteToMessageByte(hDuck, CP_VRDUCK);
+				g_pLTClient->WriteToMessageByte(hDuck, bWant ? 1 : 0);
+				g_pLTClient->EndMessage(hDuck);
+				VRLog::Msg("VRDuck: %s - told the server", bWant ? "down" : "up");
+			}
 			if (bWant) pShell->OnCommandOn(kVRHeld[nSlot]);
 			else       pShell->OnCommandOff(kVRHeld[nSlot]);
 			// EVERY TRIGGER EDGE, both ways. 12 September, headset testing: standing
@@ -9374,7 +9630,7 @@ void CGameClientShell::VRUpdateControllerInput()
 			// Each command says so the first time it fires, once. Twelve
 			// lines a run at most, and it is the only way to tell a control
 			// that is unmapped from one that is mapped to the wrong thing -
-			// in a headset both are just a button with no visible effect.
+			// in a headset both are just 'that button does nothing'.
 			static bool s_bFirst[kVRHeldCount] = { false };
 			if (bWant && !s_bFirst[nSlot])
 			{
@@ -9434,12 +9690,45 @@ void CGameClientShell::VRUpdateControllerInput()
 	// ON A VEHICLE THE TRIGGERS ARE THE PEDALS: RIGHT is the throttle, LEFT
 	// the brake - the game's own REVERSE command, which brakes and, held at a
 	// stop, backs up. The layout the standalone VR version of this game uses
-	// (the reference clip, 24 September). The 19 September mapping put the
+	// (his reference clip, 24 September). The 19 September mapping put the
 	// throttle on the LEFT trigger to keep the right one for firing, but
 	// CVehicleMgr holsters and disables the weapon on every vehicle model, so
 	// the right trigger fired nothing while riding. The stick still drives.
 	const bool bRiding = m_MoveMgr.GetVehicleMgr()
 		&& m_MoveMgr.GetVehicleMgr()->IsVehiclePhysics();
+
+	// RECENTER: BOTH GRIPS HELD, in play and in menus. Each grip keeps its own
+	// job (run, the scope's zoom, holster draws, the support hand, the rifle's
+	// front, steering), so the chord is a HOLD of both for 0.8 s while neither
+	// is doing one of those; a quick grip is never delayed. Not on a vehicle,
+	// where both grips are the handlebars, nor while the tuner holds the left
+	// grip. The pose is taken again from where the head is now, which also
+	// puts a menu screen back in front of the eyes. VRRecenterGrips 0: off.
+	{
+		static double s_fBothSince = -1.0;
+		static bool   s_bFired = false;
+		const bool bBoth = (L.nButtons & VRBTN_GRIP) && (R.nButtons & VRBTN_GRIP);
+		const bool bBusy = bRiding || s_bVRSupport
+			|| VRPhysical::GripTaken(0) || VRPhysical::GripTaken(1) || VRPhysical::TwoHanded()
+			|| g_vtVRFlashTune.GetFloat() > 0.0f;
+		const double fNowG = VRLog::NowMs();
+		if (!bBoth || bBusy || !GetConsoleInt("VRRecenterGrips", 1))
+		{
+			s_fBothSince = -1.0;
+			if (!bBoth) s_bFired = false;
+		}
+		else if (!s_bFired)
+		{
+			if (s_fBothSince < 0.0) s_fBothSince = fNowG;
+			else if (fNowG - s_fBothSince >= 800.0)
+			{
+				s_bFired = true;		// once per hold
+				VRShared::RequestRecenter();
+				VRLog::Msg("VRRecenter: both grips held 0.8 s - recentered (game state %d)",
+					(int)m_InterfaceMgr.GetGameState());
+			}
+		}
+	}
 	const bool bThrottle = bRiding && (R.fTrigger > 0.5f || (R.nButtons & VRBTN_TRIGGER));
 	const bool bBrake    = bRiding && (L.fTrigger > 0.5f || (L.nButtons & VRBTN_TRIGGER));
 	// WHILE RIDING THE LEFT TRIGGER IS THE BRAKE, so whatever the player put
@@ -9463,7 +9752,7 @@ void CGameClientShell::VRUpdateControllerInput()
 		// needs no explaining to someone wearing a headset.
 		// ON A VEHICLE THE STICK ONLY STEERS: forward and back are the
 		// triggers' job, and a stick pushed while steering also changed speed
-		//. VRVehicleStickPedals 1 puts it back.
+		// (headset, 24 September). VRVehicleStickPedals 1 puts it back.
 		const bool bStickY = !bRiding || g_vtVRVehicleStickPedals.GetFloat() > 0.0f;
 		Local::Set(this,  0, (bStickY && L.fStickY >  dz) || bThrottle);	// FORWARD (or right trigger on a vehicle)
 		Local::Set(this,  1, (bStickY && L.fStickY < -dz) || bBrake);	// REVERSE (or left trigger on a vehicle)
@@ -9506,8 +9795,8 @@ void CGameClientShell::VRUpdateControllerInput()
 		// THE LEFT GRIP IS ALSO THE TUNER'S MODIFIER, so it must not also RUN.
 		//
 		// VRFlashTuneUpdate took the left grip as its hold-to-adjust key the
-		// same morning this line was read, which would have had the player sprinting
-		// on the spot every time the player nudged the muzzle - and controls that fight
+		// same morning this line was read, which would have had him sprinting
+		// on the spot every time he nudged the muzzle - and controls that fight
 		// the player is exactly the report that costs an hour to trace back to two
 		// features sharing a button. Only while the tuner is ON; ordinary play
 		// keeps its run key.
@@ -9540,7 +9829,8 @@ void CGameClientShell::VRUpdateControllerInput()
 		// ...nor while the grip holds a clip from the ammo pouch (physical play).
 		Local::Set(this,  6, !bTuning && !s_bVRSupport && !VRPhysical::GripTaken(0)
 			&& (L.nButtons & VRBTN_GRIP) != 0);	// RUN
-		Local::Set(this,  7, BindHeld(VRBinds::ACT_DUCK));	// DUCK     B by default
+		s_bVRDuckButton = BindHeld(VRBinds::ACT_DUCK);
+		Local::Set(this,  7, s_bVRDuckButton || (s_bVRRealCrouch && !bRiding));	// DUCK     B by default, or crouching for real
 		Local::Set(this,  8, BindHeld(VRBinds::ACT_JUMP));	// JUMP     A by default
 		bool bVRFireNow = !bRiding && (R.nButtons & VRBTN_TRIGGER) != 0;	// the throttle while riding
 #if VR_DEBUG_TOOLS
@@ -9558,6 +9848,8 @@ void CGameClientShell::VRUpdateControllerInput()
 #endif	// VR_DEBUG_TOOLS
 		// The sunglasses only take a photo while they are at the eyes.
 		if (bVRFireNow && VRPhysical::GlassesBlockFire(&m_weaponModel)) bVRFireNow = false;
+		// A new clip in a gun fired empty: nothing until the slide is pulled.
+		if (bVRFireNow && VRPhysical::RackBlocksFire(&m_weaponModel)) bVRFireNow = false;
 		// The coin and the lipsticks: the trigger readies, letting go throws.
 		{
 			bool bThrowFire = false;
@@ -9595,7 +9887,7 @@ void CGameClientShell::VRUpdateControllerInput()
 			}
 		}
 
-		// THE CONTROLS THAT WERE MISSING. no additional
+		// THE CONTROLS THAT WERE MISSING. Headset testing, 8 September: no additional
 		// regular game controls such as weapon changes, weapon wheel or
 		// flashlight. Two inputs were still unbound on the controllers - the
 		// RIGHT stick click and the LEFT trigger - and these are the two most
@@ -9733,7 +10025,70 @@ void CGameClientShell::VRUpdateControllerInput()
 			g_bVRPhotoMode = !g_bVRPhotoMode;
 			VRLog::Msg("VRPhotoMode: %s", g_bVRPhotoMode ? "ON - the menu is hidden" : "off - the menu is back");
 		}
+		// Any other button brings the menu back - and does nothing else, so no
+		// press ever picks a row nobody could see.
+		else if (g_bVRPhotoMode && (nWent & (VRBTN_TRIGGER | VRBTN_GRIP | VRBTN_PRIMARY | VRBTN_SECONDARY | VRBTN_THUMBCLICK)))
+		{
+			g_bVRPhotoMode = false;
+			VRLog::Msg("VRPhotoMode: off - a button brought the menu back");
+			return;
+		}
 		if (g_bVRPhotoMode) return;
+	}
+
+	// THE MENU POINTER (house feature 13). Hold the gun hand's grip and its aim
+	// is a pointer on the menu: a dot where it lands, the menu's own mouse
+	// hover, and the trigger clicks - pressed and released at the SAME place,
+	// because a hand drifts while it pulls and menus act on the release over the
+	// row that was pressed. The sticks and buttons keep working; a tap of the
+	// grip keeps its old job. The host says where on the panel the hand points,
+	// the renderer turns that back into the menu's coordinates.
+	uint32_t nWentMenu = nWent;
+	{
+		typedef int (__cdecl *VRPtrFn)(int, float, float, int*, int*);
+		static VRPtrFn s_pfnPtr = NULL;
+		static HMODULE s_hRenSeenPtr = (HMODULE)(uintptr_t)1;
+		HMODULE hR = GetModuleHandleA("d3dstub.ren");
+		if (hR != s_hRenSeenPtr)
+		{
+			s_hRenSeenPtr = hR;
+			s_pfnPtr = hR ? (VRPtrFn)GetProcAddress(hR, "R2D_PointerToCanvas") : NULL;
+			VRLog::Msg("VRPointer: renderer entry %s", s_pfnPtr ? "resolved" : "missing");
+		}
+		static bool s_bDown = false;
+		static int  s_nDownX = 0, s_nDownY = 0, s_nLastX = -99999, s_nLastY = -99999;
+		const bool bGrip = (R.nButtons & VRBTN_GRIP) != 0 && GetConsoleFloat("VRMenuPointer", 1.0f) > 0.0f;
+		int nX = 0, nY = 0;
+		const bool bHit = bGrip && !g_bVRPhotoMode && s.nPointer[1] && s_pfnPtr
+			&& s_pfnPtr((int)s.nPointer[1], s.fPointer[1][0], s.fPointer[1][1], &nX, &nY);
+		g_bVRPointerShow = bHit;
+		if (bHit)
+		{
+			g_nVRPointerX = nX; g_nVRPointerY = nY;
+			if (nX != s_nLastX || nY != s_nLastY)
+			{
+				s_nLastX = nX; s_nLastY = nY;
+				m_InterfaceMgr.OnMouseMove(nX, nY);
+			}
+			if (nWentR & VRBTN_TRIGGER)
+			{
+				s_bDown = true; s_nDownX = nX; s_nDownY = nY;
+				m_InterfaceMgr.OnLButtonDown(nX, nY);
+				VRLog::Msg("VRPointer: click at %d,%d (%s panel)", nX, nY, s.nPointer[1] == 2 ? "pause" : "menu");
+			}
+		}
+		else s_nLastX = s_nLastY = -99999;
+		if (s_bDown && !(R.nButtons & VRBTN_TRIGGER))
+		{
+			s_bDown = false;
+			m_InterfaceMgr.OnLButtonUp(s_nDownX, s_nDownY);
+		}
+		g_bVRPointerDown = s_bDown;
+		// While pointing, the gun hand's trigger is the click, not Return.
+		if (bGrip) nWentMenu &= ~(nWentR & VRBTN_TRIGGER & ~nWentL);
+		static int s_nSaidPtr = 0;
+		if (bHit && s_nSaidPtr++ == 0)
+			VRLog::Msg("VRPointer: pointing at %d,%d on the %s panel", nX, nY, s.nPointer[1] == 2 ? "pause" : "menu");
 	}
 
 	// Menus are driven by KEYS, not commands: CInterfaceMgr::OnCommandOn
@@ -9809,14 +10164,14 @@ void CGameClientShell::VRUpdateControllerInput()
 	// only, so X, Use in play, sent Return and did nothing, and a player
 	// found that Y (Escape here) was the button that closed it. X, A and the
 	// trigger now send Use, as the use key does in the flat game.
-	if ((nWent & (VRBTN_PRIMARY | VRBTN_TRIGGER))
+	if ((nWentMenu & (VRBTN_PRIMARY | VRBTN_TRIGGER))
 		&& m_InterfaceMgr.GetGameState() == GS_POPUP)
 	{
 		VRLog::Msg("VRControls: document on screen - Use sent to close it");
 		m_InterfaceMgr.OnCommandOn(COMMAND_ID_ACTIVATE);
 		return;
 	}
-	if (nWent & (VRBTN_PRIMARY | VRBTN_TRIGGER))
+	if (nWentMenu & (VRBTN_PRIMARY | VRBTN_TRIGGER))
 	{
 		VRLog::Msg("VRControls: menu RETURN sent, game state %d",
 			(int)m_InterfaceMgr.GetGameState());
@@ -9864,6 +10219,21 @@ void CGameClientShell::Update()
 	}
 
 #if VR_DEBUG_TOOLS
+	// VRDebugCrash <seconds>: crash on purpose that many seconds in, so the
+	// desk can prove crash.txt names the fault and where (VRCrash).
+	{
+		static double s_fCrashT0 = -1.0;
+		const float fCrashAt = GetConsoleFloat("VRDebugCrash", 0.0f);
+		if (fCrashAt > 0.0f)
+		{
+			if (s_fCrashT0 < 0.0) s_fCrashT0 = VRLog::NowMs();
+			else if (VRLog::NowMs() - s_fCrashT0 >= fCrashAt * 1000.0)
+			{
+				VRLog::Msg("VRDebugCrash: crashing on purpose (a write through a null pointer)");
+				*(volatile int*)0 = 1;
+			}
+		}
+	}
 	// VRDebugOpenVRPage 1: open Options > VR from a menu, once, so the desk
 	// can dump the page and check every row fits.
 	{
@@ -9936,6 +10306,29 @@ void CGameClientShell::Update()
 		VRShared::SetSwapSticks(bSticks);
 	}
 
+	// A HEADSET FASTER THAN 90 HZ. The game's time runs at 90 frames a second,
+	// so on a faster headset each game frame shows for one refresh or two,
+	// unevenly, and anything moving judders. The host asks the headset down to
+	// 90 where the runtime allows it; where it does not, the player is told,
+	// once per level, a few seconds into play.
+	{
+		static int s_nSaidWorld = -1;
+		static float s_fPlayingSince = -1.0f;
+		const float fHz = VRShared::IsLive() ? VRShared::State().fDisplayHz : 0.0f;
+		if (m_InterfaceMgr.GetGameState() != GS_PLAYING) s_fPlayingSince = -1.0f;
+		else if (s_fPlayingSince < 0.0f) s_fPlayingSince = g_pLTClient->GetTime();
+		if (fHz > 95.0f && GetConsoleInt("VRMatchRefresh", 0) == 0
+			&& s_nSaidWorld != g_nVRWorldEntries && s_fPlayingSince >= 0.0f
+			&& g_pLTClient->GetTime() - s_fPlayingSince > 4.0f)
+		{
+			s_nSaidWorld = g_nVRWorldEntries;
+			char sz[160];
+			sprintf(sz, "Your headset runs at %.0f Hz. Set 90 Hz in your headset's settings, or turn on VR Options > Screen and Aim > Match headset refresh rate.", fHz);
+			m_InterfaceMgr.GetMessageMgr()->AddLine(sz);
+			VRLog::Msg("VRRefresh: the headset runs at %.0f Hz (the game runs at 90) - the player was told", fHz);
+		}
+	}
+
 	// THE HOST IS GONE: SAY SO AND CLOSE. Without a host the game draws its
 	// side-by-side eyes onto the monitor and nothing reaches a headset. The
 	// host closes the game itself when it gives up on a headset, but a host
@@ -10004,8 +10397,8 @@ void CGameClientShell::Update()
 			const char* pFile = QUICKSAVE_FILENAME;
 			// VRAutoQuickLoad 2: the RELOAD save (the engine's own save at the
 			// last mission start, "Reload" in Save1001.ini) instead of the quick
-			// save - a desk run in whatever level the player last played, with its
-			// loadout, without touching the quick save. 14 September: the
+			// save - a desk run in whatever level he last played, with its
+			// loadout, without touching his quick save. 14 September: the
 			// lobby quick save holds no gun and the weapon work needed one.
 			if (fAutoLoadMode > 1.5f)
 			{
@@ -10023,7 +10416,7 @@ void CGameClientShell::Update()
 		}
 	}
 
-	// THE SAME LOAD, ON A TIMER. The tester's trigger for the scrambled skins is the
+	// THE SAME LOAD, ON A TIMER. His trigger for the scrambled skins is the
 	// menu's Load, which the desk harness cannot reach - it quick-loads once
 	// at startup and has no way to do it twice, which is why that bug has
 	// never been measured here. This ends at the same LoadGame call the menu
@@ -10216,13 +10609,13 @@ void CGameClientShell::Update()
 	// was updating the pose.
 	//
 	// Turning the INTERFACE camera is the missing half. The position must not
-	// change - the simulation is paused and the player has not moved - so the renderer
+	// change - the simulation is paused and he has not moved - so the renderer
 	// keeps supplying the remembered eye positions and only the rotation comes
 	// from here.
 	//
 	// Same composition as the live path's mode 3: head first, against the
 	// body's YAW ONLY. Anything that post-multiplies the full body rotation
-	// carries the mouse's pitch into the head and tilts the view when the player looks
+	// carries the mouse's pitch into the head and tilts the view when he looks
 	// up, which is a defect this project has already had reported once.
 
 #if VR_DEBUG_TOOLS
@@ -10540,7 +10933,7 @@ void CGameClientShell::Update()
 			// server's CPlayerAttachments::HandleCheatFullWeapon does nothing
 			// at all when the player has no default attachment weapon yet,
 			// and returns no error - so the single send at two seconds into
-			// the world left the player holding only fists for the whole
+			// the world left the player holding his fists for the whole
 			// level. On 11 September a desk harness fired for ten seconds,
 			// photographed no muzzle flash, and the weapon it was firing was
 			// 'fisty_cuffs'. Counted, retried and checked against what the
@@ -10599,7 +10992,7 @@ void CGameClientShell::Update()
 	// staged install whose config never visited the Options pages runs with
 	// gore off, polygrids off, the sky off - and nothing anywhere says so.
 	//
-	// the waterfall did not move and there was no
+	// Headset testing, 11 September: the waterfall did not move and there was no
 	// blood splatter on walls. PolyGridFX skips its whole wave update when PolyGrids is
 	// off; CWeaponFX::CreateSurfaceSpecificFX returns early when Gore is
 	// off. Both read as off because both were absent from autoexec.cfg.
@@ -10742,11 +11135,11 @@ void CGameClientShell::Update()
 
 	// ---- VRDebugQuickSave: MAKE THE QUICK SAVE THE HARNESS WILL LOAD -------
 	//
-	// Asked for in when something needs testing in
+	// Asked for in headset testing, 19 September: when something needs testing in
 	// a specific level, make the quick save that level, and ideally the specific
 	// spot, because it would speed up testing greatly.
 	//
-	// It is also the cheapest thing on the list. Every desk capture
+	// That is right and it is the cheapest thing on the list. Every desk capture
 	// taken without -World loads game\Save\Quick.sav, so whatever that file
 	// holds is where every test begins. Today it held the HQ lobby, which is
 	// why no capture could find the waterfall and why reaching a level with a
@@ -10782,7 +11175,7 @@ void CGameClientShell::Update()
 	// cards are presented as a flat panel with no world behind them, and
 	// their 3D pieces (the orange sheet, the flower) are drawn through this
 	// camera; turning it with the head slid those pieces under the card's
-	// text. moving the head moved part of the
+	// text. Headset testing, 13 September: moving the head moved part of the
 	// layers of the image, and nothing should move with headset movement there.
 	if (g_vtVRPauseLook.GetFloat() > 0.0f && m_hInterfaceCamera && IsInWorld()
 		&& m_InterfaceMgr.GetGameState() == GS_FOLDER
@@ -10807,7 +11200,7 @@ void CGameClientShell::Update()
 			// frame pitch and roll come out reversed - which is precisely the
 			// report: a roll left rolled right, and pitching the head up pitched
 			// the view down. The pause menu was never inverted; it was in the wrong
-			// frame, by exactly the angle the player happened to be standing at.
+			// frame, by exactly the angle he happened to be standing at.
 			const int nPauseMode = (int)g_vtVRQuatHead.GetFloat();
 			LTRotation rUse = (nPauseMode >= 2) ? (rHead * rBodyYaw)
 											   : (rBodyYaw * rHead);
@@ -11054,7 +11447,7 @@ void CGameClientShell::Update()
 
 			// Where to put it. The primary display is the safe default; a
 			// faster one is only used when the host is live, so the flat game
-			// can never end up on a display the player is not looking at.
+			// can never end up on a display the owner is not looking at.
 			int nWinX = 0, nWinY = 0;
 			if (g_vtVRWindowMonitor.GetFloat() > 0.0f && VRShared::IsLive())
 			{
@@ -11420,7 +11813,14 @@ void CGameClientShell::PostUpdate()
 
 		// VR needs 90+; the stock limiter is hardcoded to 60.
 		LONGLONG lTarget = m_lFrametime;
-		const float fVRFps = g_vtVRFramerate.GetFloat();
+		float fVRFps = g_vtVRFramerate.GetFloat();
+		// MATCH HEADSET REFRESH RATE (VR Options > Screen and Aim): the target
+		// is the headset's own rate when it is higher.
+		if (GetConsoleInt("VRMatchRefresh", 0) > 0 && VRShared::IsLive())
+		{
+			const float fHz = VRShared::State().fDisplayHz;
+			if (fHz > fVRFps && fHz < 400.0f) fVRFps = fHz;
+		}
 		if (fVRFps > 1.0f && m_lTimerFrequency.QuadPart > 0)
 		{
 			lTarget = (LONGLONG)((double)m_lTimerFrequency.QuadPart / (double)fVRFps);
@@ -11973,7 +12373,7 @@ void CGameClientShell::StartLevel()
 		// AND NOTHING ELSE. The direct calls below were kept alongside the
 		// switches at first, so god mode was sent TWICE on every world entry
 		// - and the server toggles, so two sends is OFF. The tester played the
-		// whole of the tester's first session with -God and no god mode.
+		// whole of his first session with -God and no god mode.
 #else
 		if (nVRCheats & 1) g_pCheatMgr->VRSetGod();
 		if (nVRCheats & 2) g_pCheatMgr->VRSetKFA();
@@ -11988,7 +12388,7 @@ void CGameClientShell::StartLevel()
 				nVRCheats, (nVRCheats & 1) ? "on" : "-", (nVRCheats & 2) ? "on" : "-",
 				(nVRCheats & 4) ? "on" : "-");
 
-		// PUT A GUN IN THE PLAYER'S HAND. The arsenal cheat GIVES every weapon and
+		// PUT A GUN IN HIS HAND. The arsenal cheat GIVES every weapon and
 		// selects none of them, so the player still holds 'fisty_cuffs' - and
 		// fists have no muzzle flash. A desk harness that fires for ten
 		// seconds and photographs nothing therefore looks exactly like a
@@ -12000,7 +12400,7 @@ void CGameClientShell::StartLevel()
 		// number key would send. Sending it HERE does nothing: the arsenal
 		// cheat asks the SERVER for the weapons and they have not arrived two
 		// frames into the world, so the change is refused and the player keeps
-		// the player's fists. The send is retried once a second from the update loop
+		// his fists. The send is retried once a second from the update loop
 		// instead - see VRDebugWeapon there.
 	}
 }
@@ -12756,7 +13156,7 @@ void CGameClientShell::LogRotationConvention()
 //				turns with the aim, and the weapon points where the game
 //				thinks the player is looking.
 //
-//				The player's most durable observation about the warping is that
+//				The owner's most durable observation about the warping is that
 //				MOUSE look feels correct and HEAD look does not. Only two
 //				things differ between them, so this changes both at once and
 //				on purpose:
@@ -12943,14 +13343,26 @@ void CGameClientShell::CalculateCameraRotation()
 	// [kml] 12/26/00 Check varying degrees of strage and look.
 	if(!(m_dwPlayerFlags & BC_CFLG_STRAFE))
 	{
+		// In VR the turning stick turns at VRTurnSpeed degrees a second (120 when
+		// the config has never held it), whether or not the run grip is held.
+		// NormalTurnRate stays the keyboard's: it is in every retail config, so a
+		// VR default set through it would never reach anyone.
+		LTFLOAT fTurn = (m_dwPlayerFlags & BC_CFLG_RUN) ? g_vtFastTurnRate.GetFloat() : g_vtNormalTurnRate.GetFloat();
+		if (VRShared::IsLive() && GetConsoleInt("VRControls", 1))
+		{
+			float fDeg = GetConsoleFloat("VRTurnSpeed", 120.0f);
+			if (fDeg < 15.0f) fDeg = 15.0f;
+			if (fDeg > 360.0f) fDeg = 360.0f;
+			fTurn = fDeg * 0.01745329f;
+		}
 		if(m_dwPlayerFlags & BC_CFLG_LEFT)
 		{
-			m_fYaw -= m_fFrameTime * ((m_dwPlayerFlags & BC_CFLG_RUN) ? g_vtFastTurnRate.GetFloat() : g_vtNormalTurnRate.GetFloat());
+			m_fYaw -= m_fFrameTime * fTurn;
 		}
 
 		if(m_dwPlayerFlags & BC_CFLG_RIGHT)
 		{
-			m_fYaw += m_fFrameTime * ((m_dwPlayerFlags & BC_CFLG_RUN) ? g_vtFastTurnRate.GetFloat() : g_vtNormalTurnRate.GetFloat());
+			m_fYaw += m_fFrameTime * fTurn;
 		}
 	}
 
@@ -13873,7 +14285,7 @@ void CGameClientShell::UpdateVRAimMarker()
 		// the body, so the hit is on the box face - a hand's width or more in
 		// front of the chest, and further still when the box is hit near a
 		// corner. In the headset, aimed at an enemy, the dot seemed to hover
-		// about a foot in front of the player, when it should be touching the
+		// about a foot in front of him, when it should be touching the
 		// surface.
 		//
 		// There is no mesh to intersect on the client, so the dot goes to the
@@ -14852,8 +15264,8 @@ void CGameClientShell::OnCommandOn(int command)
 		//
 		// The tuner reads the keys with GetAsyncKeyState and does not consume
 		// them, so the engine sees them too. Rather than move the tuner off the
-		// numpad - the tester asked for the numpad, because that is what the Prey port
-		// uses and the tester's hands already know it - the weapon change is suppressed
+		// numpad - he asked for the numpad, because that is what the Prey port
+		// uses and his hands already know it - the weapon change is suppressed
 		// while VRFlashTune is on. VRDebugWeapon still chooses the gun, which is
 		// how the tuning session is set up in the first place.
 		if (g_vtVRFlashTune.GetFloat() > 0.0f)
@@ -14874,9 +15286,9 @@ void CGameClientShell::OnCommandOn(int command)
 	// AND THE CYCLING COMMANDS, which the guard above does not cover: they are
 	// not in the weapon-slot command range. Shift is NextWeapon (autoexec.cfg
 	// line 326, scancode 42), and swapping the gun re-creates the muzzle flash -
-	// the one object the tuner exists to hold still. This was hit twice, once
+	// the one object the tuner exists to hold still. The tester hit this twice, once
 	// on the numpad and once on shift.
-	// QUICKSAVE IS IN THE SAME HANDFUL OF KEYS, and it is easy to hit blind, sometimes
+	// QUICKSAVE IS IN THE SAME HANDFUL OF KEYS, and he hit it blind, sometimes
 	// landing on quick save or quick load or something else. A stray
 	// quicksave during a tuning session overwrites the save the session was set
 	// up from, which is a worse outcome than losing the tuning.
@@ -15177,7 +15589,7 @@ void CGameClientShell::OnCommandOff(int command)
 
 void CGameClientShell::OnKeyDown(int key, int rep)
 {
-	// VR: a project rule - one toggle key for stereo, so modes can be compared
+	// VR: hard rule #6 - one toggle key for stereo, so modes can be compared
 	// in-game without restarting. Cycles off -> double -> side-by-side.
 	//
 	// F11, not F9. NOLF binds F9 to QuickLoad and F6 to QuickSave through the
@@ -15203,8 +15615,8 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 	// in one eye and straddles the seam - it is effectively unreadable in the
 	// headset. Tuning something that can only be judged by feel should not
 	// require reading anything, so F7/F8 step the value and F10 marks the
-	// current one as the best so far. The log carries the numbers; the player
-	// only has to move the head and press keys.
+	// current one as the best so far. The log carries the numbers; the owner
+	// only has to move his head and press keys.
 	// F7/F8 now sweep the horizontal FOV trim rather than pose lag.
 	//
 	// Pose lag is settled and not worth more keys: any value other than 0 asks
@@ -15224,10 +15636,10 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 	// wrong criterion for an artefact that only appears in motion.
 	// F7/F8 are now a straight A/B on the exact-pose correction, not a sweep.
 	//
-	// Sweeping asked for a ranking of values 10 ms apart, which is below what
+	// Sweeping asked the owner to rank values 10 ms apart, which is below what
 	// anyone can judge through a headset - it produced the verdict that they all
 	// felt the same, twice, correctly. A binary comparison between two clearly different
-	// states is the kind of judgement a headset tester makes reliably.
+	// states is the kind of judgement he is a good instrument for.
 	if (key == VK_F7 || key == VK_F8)
 	{
 		const bool bOn = (key == VK_F8);
@@ -15239,7 +15651,7 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 
 	// F12 cycles the optical-centre mode, so it can be tested without the
 	// console. The console is drawn once across the whole window, so each eye
-	// receives half of it and it is unreadable in the headset - the player has
+	// receives half of it and it is unreadable in the headset - the owner has
 	// been typing commands blind from memory all session. Anything that has to
 	// be judged while wearing the headset needs a key, not a command.
 	// F5 toggles the render rate between 90 and 60.
@@ -15260,7 +15672,7 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 	// or pose - and nothing to do with how the client composes the camera.
 	// If the bending stops, it is our camera path.
 	//
-	// The player's own observation is what this tests: mouse look feels correct
+	// The owner's own observation is what this tests: mouse look feels correct
 	// and head look does not, and the only difference between them is that a
 	// still head means the runtime warps nothing.
 	// F2/F3 trim the horizontal field, judged by whether the world STAYS PUT
@@ -15279,7 +15691,7 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 	// twice; people are very good at nulls and poor at absolute judgements.
 	// F2 measures the field instead of asking anyone to rank it. The sweep this
 	// replaces produced no usable answer twice, which was the test's fault and
-	// not the player's - it is below the threshold at which a person can rank a
+	// not the owner's - it is below the threshold at which a person can rank a
 	// value, and it never needed eyes in the first place.
 	if (key == VK_F2)
 	{
@@ -15299,7 +15711,7 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 	// previous test changed one number and asked whether the bending got
 	// better, which needs a ranking judgement; this changes which SIDE of the
 	// pipeline is responsible and asks only whether the bending is still there,
-	// which is the kind of call a headset tester makes reliably.
+	// which is the kind of call the owner is a reliable instrument for.
 	//
 	// F1 is free: NOLF binds QuickSave to F6 and QuickLoad to F9 through the
 	// engine's action system, which OnKeyDown cannot suppress, but nothing is
@@ -15475,7 +15887,7 @@ void CGameClientShell::OnKeyDown(int key, int rep)
 		}
 		else if	(key == VK_F9)
 		{
-			// NOT WHILE TUNING. F9 sits between the tuner's F8 and F10 and the player
+			// NOT WHILE TUNING. F9 sits between the tuner's F8 and F10 and he
 			// reached it by feel with the headset on; a quickload mid-session
 			// throws away everything tuned since the last save.
 			if (g_vtVRFlashTune.GetFloat() > 0.0f)
@@ -17464,13 +17876,13 @@ LTBOOL CGameClientShell::EnableJoystick()
 // tuning just like the Prey port, and fine tune that one effect to see
 // whether the difference can be seen.
 //
-// That is the way to do it. Every attempt to reason
-// the flash into place has cost a headset test and been wrong, most
-// recently when the thing at the wall was taken for the impact - the runs
-// showed the flash lying on the carpet by the fountain
-// in several copies, which is exactly what the screenshots show.
+// That is the way to do it. Every attempt tonight to reason
+// the flash into place has cost him a headset trip and been wrong, most
+// recently when I told him the thing at the wall was the impact - he had
+// watched the runs and knew the flash was lying on the carpet by the fountain
+// in several copies, which is exactly what his screenshots show.
 //
-// One effect, one gun, live numbers, judged by eye. Nothing here changes the flash's
+// One effect, one gun, live numbers, his eyes. Nothing here changes the flash's
 // behaviour when VRFlashTune is 0.
 //
 //   NUMPAD 4 / 6      left / right        (across the barrel)
@@ -17490,7 +17902,7 @@ LTBOOL CGameClientShell::EnableJoystick()
 // RunConsoleString sets a variable in memory and nothing writes it out. The
 // engine's WriteConfigFile does not save these at all - checked: after a
 // session of tuning, autoexec.cfg carried not one VRFlashOff. So every muzzle value
-// the tester has ever tuned died on quitting, which is most of why this has taken
+// the tester has ever tuned died when he quit, which is most of why this has taken
 // days instead of minutes.
 //
 // So the tuner keeps its own table and writes its own file. vrtune.cfg is a
@@ -17499,7 +17911,7 @@ LTBOOL CGameClientShell::EnableJoystick()
 // cooperate.
 namespace VRTuneSave
 {
-	// A TABLE THAT DROPS SILENTLY LOSES THE PLAYER'S WORK. This held 128 entries and
+	// A TABLE THAT DROPS SILENTLY LOSES HIS WORK. This held 128 entries and
 	// Remember() returned without a word when it was full. The file is merged
 	// in AFTER the session's own entries, so once the total passed 128 it was
 	// the FILE's older values that fell off - and the file was then rewritten
@@ -17575,8 +17987,10 @@ namespace VRTuneSave
 // THE HAND TUNER (VRHandTune 1). Both hands, where each sits on its controller
 // and how it is rolled, and nothing else: the weapon tuner's nine gun modes, a
 // held muzzle flash and a long readout were in the way of tuning two hands
-//. Same keys as the weapon tuner:
-//   End            next page: LEFT HAND, LEFT ROLL, RIGHT HAND, RIGHT ROLL,
+// (headset, 27 September). Same keys as the weapon tuner:
+//   End            next page: GUN HOLD (Cate's hand on every gun: PgUp/PgDn
+//                  up and down, Up/Down forward and back, Left/Right turned),
+//                  LEFT HAND, LEFT ROLL, RIGHT HAND, RIGHT ROLL,
 //                  GUN (the gun moved in the hand, per gun), HAND SIZE
 //   Left / Right   the hand left / right         (ROLL pages: roll it)
 //   PgUp / PgDn    up / down
@@ -17603,9 +18017,10 @@ static void VRHandTuneStep(char* szOut, int nOut, const char* pszGun)
 		bHit[8] = bNow && !s_bEnd;
 		s_bEnd = bNow;
 	}
-	static int s_nPage = 0;		// 0 left hand, 1 left roll, 2 right hand, 3 right roll, 4 gun, 5 hand size
+	// 0 left hand, 1 left roll, 2 right hand, 3 right roll, 4 gun, 5 hand size, 6 gun hold (first)
+	static int s_nPage = 6;
 	static int s_nStep = 1;		// 0 fine, 1 normal, 2 coarse
-	if (bHit[8]) s_nPage = (s_nPage + 1) % 6;
+	if (bHit[8]) s_nPage = (s_nPage + 1) % 7;
 	if (bHit[6]) s_nStep = (s_nStep + 1) % 3;
 	const float kCm[3]  = { 0.5f, 1.0f, 2.0f };
 	const float kDeg[3] = { 2.0f, 5.0f, 15.0f };
@@ -17622,6 +18037,38 @@ static void VRHandTuneStep(char* szOut, int nOut, const char* pszGun)
 			VRTuneSave::Remember(n, f);
 		}
 	};
+	// GUN HOLD: Cate's gun hand on every gun at once (VRHands.cpp): up and
+	// down, forward and back in cm, and turned in degrees. Each gun's own
+	// tuning is not touched.
+	if (s_nPage == 6)
+	{
+		struct G { static float Get(const char* n, float f) { return GetConsoleFloat((char*)n, f); } };
+		const float d = kCm[s_nStep];
+		const float a = kDeg[s_nStep];
+		float fUp = G::Get("VRGunHoldUp", 1.0f), fFwd = G::Get("VRGunHoldFwd", 0.0f), fTurn = G::Get("VRGunHoldTurn", 22.0f);
+		bool bCh = false;
+		if (bHit[2]) { fUp += d;  bCh = true; }
+		if (bHit[3]) { fUp -= d;  bCh = true; }
+		if (bHit[5]) { fFwd += d; bCh = true; }
+		if (bHit[4]) { fFwd -= d; bCh = true; }
+		if (bHit[0]) { fTurn += a; bCh = true; }	// left arrow: the fingers further down the grip
+		if (bHit[1]) { fTurn -= a; bCh = true; }
+		if (bHit[7]) { fUp = 1.0f; fFwd = 0.0f; fTurn = 22.0f; bCh = true; }
+		if (fTurn < 0.0f) fTurn = 0.0f;
+		if (fTurn > 60.0f) fTurn = 60.0f;
+		if (bCh)
+		{
+			V::Set("VRGunHoldUp", fUp);
+			V::Set("VRGunHoldFwd", fFwd);
+			V::Set("VRGunHoldTurn", fTurn);
+			VRLog::Msg("VRHandTune: GUN HOLD  up %+.1f cm  fwd %+.1f cm  turn %.0f deg", fUp, fFwd, fTurn);
+			VRTuneSave::Write();
+		}
+		_snprintf(szOut, nOut, "GUN HOLD  up %+.1f  fwd %+.1f cm  turn %.0f deg  (%s)", fUp, fFwd, fTurn,
+			s_nStep == 0 ? "fine" : s_nStep == 1 ? "normal" : "coarse");
+		szOut[nOut - 1] = '\0';
+		return;
+	}
 	// GUN: the gun you hold moved in the hand - VRGripOffR/U/F@<gun>, the
 	// drawn gun's own grip offset (world units along the gun, shown in cm), so
 	// the hand stays where it was tuned and the gun is fitted to it.
@@ -17739,8 +18186,8 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// F-KEYS, BECAUSE NOTHING IN THE GAME IS BOUND TO THEM.
 	//
 	// In headset testing the numpad did not work because it changes weapons, and
-	// tuning time should not go on getting the rig to work rather
-	// than fine tuning. So this uses keys that cannot collide.
+	// the tester did not want to spend the session getting the rig to work rather
+	// than fine tuning. Fair. So this uses keys that cannot collide.
 	//
 	// Why the numpad collided, from game/autoexec.cfg:
 	//
@@ -17754,12 +18201,12 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// AND THE NUMLOCK-OFF FALLBACK ADDED AN HOUR AGO WAS A MISTAKE, removed
 	// here. With NumLock off the numpad sends the navigation codes, and those
 	// ARE bound: 201 LookUp, 209 LookDown, 203 Left, 205 Right. Reading them
-	// would have retuned the flash every time the head turned.
+	// would have retuned the flash every time he turned his head.
 	//
 	// The F-keys are clean. autoexec.cfg binds only 64 and 67 - F6 and F9 - and
 	// F1 is spoken for elsewhere in this port, so those three are left alone.
 	// The numpad stays live too, with the weapon change suppressed while
-	// tuning, so whichever the player reaches for works.
+	// tuning, so whichever he reaches for works.
 	//
 	//   F2 / F3    left / right across the barrel
 	//   F4 / F5    up / down
@@ -17773,19 +18220,19 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// NUMPAD 1 IS THE NUMPAD'S END, and the effect cycle. The tester tuned the AK47's
 	// "tracer" for a whole session on 20 September and the log shows Down and
 	// Up seen, applied to the FLASH, and no End press ever seen - the readout
-	// still said FLASH and the thing that moved was the muzzle flash. The player is in
+	// still said FLASH and the thing that moved was the muzzle flash. He is in
 	// a headset, finding keys blind on the numpad; the main-cluster End was the
 	// only key in this table with no numpad twin.
 	const int nKeys[10] = { VK_NUMPAD4, VK_NUMPAD6, VK_NUMPAD8, VK_NUMPAD2,
 							VK_NUMPAD7, VK_NUMPAD9, VK_NUMPAD5, VK_NUMPAD0,
 							VK_DECIMAL, VK_NUMPAD1 };
 	// THE ARROW CLUSTER, AND NOT ONE F-KEY. This is the fix for the worst bug
-	// of the day.
+	// of the day, and it was mine.
 	//
 	// In the headset the view was locked to the head, which was disorienting.
 	// VK_F4 is the tuner's UP - and F4 also TOGGLES VRHeadTracking. Every time
-	// the flash was nudged up, head tracking switched off, and the
-	// symptom was hunted in the compositor, the scales and the frame
+	// he nudged the flash up he switched head tracking off, and then reported
+	// the symptom while I hunted it in the compositor, the scales and the frame
 	// pacing, all of which measured healthy because they WERE healthy.
 	//
 	// It was not one unlucky key. Every F-key this tuner used is wired to
@@ -17801,7 +18248,7 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// The tuner reads keys with GetAsyncKeyState and deliberately does not
 	// consume them, so every press did both things. So: no F-keys at all.
 	//
-	// The arrow cluster instead, which the tester asked for and can find by
+	// The arrow cluster instead, which he asked for and which he can find by
 	// touch with the headset on. Up/Down, Home, Insert and Delete are UNBOUND
 	// in autoexec.cfg - checked, not assumed - so only Left/Right (turn) and
 	// PageUp/PageDown (look) needed suppressing, and only while tuning.
@@ -17823,7 +18270,7 @@ void CGameClientShell::VRFlashTuneUpdate()
 		bHit[k] = bNow && !s_bDown[k];
 		s_bDown[k] = bNow;
 
-		// SAY THAT A KEY WAS SEEN AT ALL. A key with no effect has two very
+		// SAY THAT A KEY WAS SEEN AT ALL. "It didn't work" has two very
 		// different causes - the tuner never saw the key, or it saw it and the
 		// game acted on it underneath - and they want different fixes.
 		if (bHit[k])
@@ -17837,19 +18284,19 @@ void CGameClientShell::VRFlashTuneUpdate()
 		}
 	}
 
-	// AND THE SAME CONTROLS ON THE LEFT CONTROLLER, because the player is wearing a
-	// headset while the player uses this.
+	// AND THE SAME CONTROLS ON THE LEFT CONTROLLER, because he is wearing a
+	// headset while he uses this.
 	//
-	// the keys
+	// Headset testing, 20 September, after the first real tuning session: the keys
 	// were very hard to work out because the headset had to come off to
 	// keep finding the right F keys, and sometimes quick save, quick load
 	// or something else got hit instead. A tuning tool that needs the headset
-	// OFF cannot tune the thing the headset is for - the flash was judged
-	// blind and keys were found by touch.
+	// OFF cannot tune the thing the headset is for - he was judging the flash
+	// blind and then groping for a key he could not see.
 	//
 	// HOLD THE LEFT GRIP to tune. Let go and it is ordinary play again, so
-	// walking and turning are untouched when the player is not actually adjusting. The
-	// right hand keeps holding the gun, which means the player watches the flash with
+	// walking and turning are untouched when he is not actually adjusting. The
+	// right hand keeps holding the gun, which means he watches the flash with
 	// the hand that moves it and adjusts with the other.
 	//
 	//   left stick left / right    back / forward along the barrel
@@ -17889,7 +18336,7 @@ void CGameClientShell::VRFlashTuneUpdate()
 		}
 	}
 
-	// THE STEP WAS FAR TOO SMALL TO SEE, and that is why the tester reported the flash
+	// THE STEP WAS FAR TOO SMALL TO SEE, and that is why he reported the flash
 	// as never moving whichever way it was pushed.
 	//
 	// It was 0.5 units a press. A unit is 16.92 mm here, so that is EIGHT
@@ -17914,11 +18361,11 @@ void CGameClientShell::VRFlashTuneUpdate()
 	// question of how far a press moves it.
 	// AND IT CAN LAND ON AN ODD NUMBER NOW.
 	//
-	// the ak47 got almost perfect, but the
+	// Headset testing, 20 September: the ak47 got almost perfect, but the
 	// stepping made it impossible to finish - it could be -4.0 or -6.0 and it
 	// needed to be about -5. A step of 2 from zero can only ever reach even numbers, so
-	// the one value the player wanted was the one value unreachable. The fine step
-	// existed all along at 0.5, three presses of F10 away, on a keyboard the player
+	// the one value he wanted was the one value unreachable. The fine step
+	// existed all along at 0.5, three presses of F10 away, on a keyboard he
 	// could not see.
 	//
 	// So the DEFAULT is the fine one and the ladder is denser: 0.5 lands on -5
@@ -17958,7 +18405,7 @@ void CGameClientShell::VRFlashTuneUpdate()
 	static int s_nTuneMode = 0;			// 0 flash, 1 tracer, 2 casing
 	// START IN A MODE FROM THE COMMAND LINE: +VRFlashTuneMode 2 opens in
 	// CASING with no presses at all. Headset testing, 20 September, after the stick
-	// click took the player to CASING and the session ended a moment later: the request
+	// click took him to CASING and the session ended a moment later: the request
 	// was to start in the casing mode with no button presses at all.
 	// Read once, when the tuner first runs; the cycle keys still work after.
 	{
@@ -18139,8 +18586,8 @@ void CGameClientShell::VRFlashTuneUpdate()
 		bChanged = true;
 	}
 
-	// THE NUMBERS GO IN THE LOG AS WELL AS ON SCREEN, so that when the player finds the
-	// value that looks right the player can read it back off the log afterwards rather
+	// THE NUMBERS GO IN THE LOG AS WELL AS ON SCREEN, so that when he finds the
+	// value that looks right he can read it back off the log afterwards rather
 	// than having to memorise it inside a headset.
 	if (bChanged || bChangedStep)
 	{
@@ -18159,16 +18606,16 @@ void CGameClientShell::VRFlashTuneUpdate()
 				   pszF, szSlug, Loc::Get(pszF, szSlug));
 	}
 
-	// ON SCREEN, EVERY FRAME. The player is in a headset; the log is not readable from
+	// ON SCREEN, EVERY FRAME. He is in a headset; the log is not readable from
 	// there and the whole point is to see the number move with the effect.
-	// AND WRITE IT TO DISK, OR THE PLAYER TUNES IT TWICE.
+	// AND WRITE IT TO DISK, OR HE TUNES IT TWICE.
 	//
 	// RunConsoleString sets the variable in memory and nothing more. The ONLY
 	// calls to WriteConfigFile in this client are in the options-menu folders
 	// and a one-time patch upgrade - there is none on exit. So a perfectly
-	// tuned weapon was lost the moment the player quit, which is why autoexec.cfg held
+	// tuned weapon was lost the moment he quit, which is why autoexec.cfg held
 	// 63 per-weapon ANGLE trims and not one VRFlashOffF: the angles got there
-	// through a menu save, and the player's muzzle tuning never survived a session.
+	// through a menu save, and his muzzle tuning never survived a session.
 	//
 	// The right question was asked before testing - whether a button had to
 	// be pressed to lock in a perfect spot once found - and the honest answer
@@ -18843,7 +19290,7 @@ void CGameClientShell::UpdateServerPlayerModel()
 // in FRONT of the hill: the engine sees the face from that eye and draws a
 // snowy slab across the upper half of the frame, while the other eye, still
 // behind the plane, sees the trees. In the headset some things, like the
-// trees, showed only in the left eye and not the right. Reproduced at the desk with the tester's
+// trees, showed only in the left eye and not the right. Reproduced at the desk with his
 // head pose - the slab is in one column of the sheet and not the other.
 //
 // So before an eye is rendered, cast from the CENTRE camera to the eye and
@@ -19130,7 +19577,7 @@ void CGameClientShell::RenderCamera(LTBOOL bDrawInterface)
 //	PURPOSE:	VR - lazily created off-screen surface holding one eye while
 //				the other is rendered. Recreated if the half-window size
 //				changes. Returns LTNULL on failure; the caller degrades to a
-//				mono-looking right half rather than crashing (a project rule).
+//				mono-looking right half rather than crashing (hard rule #3).
 //
 // ----------------------------------------------------------------------- //
 
@@ -19201,7 +19648,7 @@ void CGameClientShell::LogEyeGeometry(int nEye, const LTVector& vBasePos)
 //				Deliberately free of C++ objects with destructors so that
 //				__try/__finally is legal here. Camera position, rotation,
 //				viewport and FOV are restored on every exit path including a
-//				structured exception (a project rule) - SEH does not unwind C++
+//				structured exception (hard rule #5) - SEH does not unwind C++
 //				destructors, so an RAII guard would not be sufficient.
 //
 // ----------------------------------------------------------------------- //
@@ -19374,14 +19821,14 @@ void CGameClientShell::ProbeReadbackTick()
 //	PURPOSE:	Eye separation in world units, from the headset when it can be
 //				trusted and from VRIPD when it cannot.
 //
-//				A headset's IPD wheel can be mechanically loose and wander between
-//				59 and 62 mm on its own; set to 62, the
-//				range cannot be told apart, so this is not about how it looks - it is about
+//				The owner's IPD wheel is mechanically loose and wanders between
+//				59 and 62 mm on its own. He runs it at 62 and cannot tell the
+//				range apart, so this is not about how it looks - it is about
 //				not letting the stereo baseline change by 5% between two runs
-//				being compared.
+//				we are asking him to compare.
 //
 //				Every rejection falls back to the fixed value rather than to a
-//				guess (a project rule).
+//				guess (hard rule #3).
 //
 // ----------------------------------------------------------------------- //
 
@@ -19707,7 +20154,7 @@ void CGameClientShell::ProbeVrField()
 	g_pLTClient->GetSurfaceDims(hScreen, &nSurfW, &nSurfH);
 	if (nSurfW < 64 || nSurfH < 64) return;
 
-	// Save everything touched (a project rule).
+	// Save everything touched (hard rule #5).
 	LTVector   vSavedPos;
 	LTRotation rSavedRot;
 	float      fSavedFovX = 0.0f, fSavedFovY = 0.0f;
@@ -19797,7 +20244,7 @@ void CGameClientShell::ProbeVrField()
 			kAskY[i], fHalfY * 2.0f, fHalfX * 2.0f, pszVerdict, fErr);
 	}
 
-	// Restore (a project rule).
+	// Restore (hard rule #5).
 	g_pLTClient->SetCameraRect(m_hCamera, bSavedFull, nL, nT, nR, nB);
 	g_pLTClient->SetCameraFOV(m_hCamera, fSavedFovX, fSavedFovY);
 
@@ -19853,7 +20300,7 @@ void CGameClientShell::ProbeCameraField()
 	g_pLTClient->GetSurfaceDims(hScreen, &nSurfW, &nSurfH);
 	if (nSurfW < 64 || nSurfH < 64) return;
 
-	// Save everything we touch (a project rule).
+	// Save everything we touch (hard rule #5).
 	LTVector   vSavedPos;
 	LTRotation rSavedRot;
 	float      fSavedFovX = 0.0f, fSavedFovY = 0.0f;
@@ -19982,13 +20429,13 @@ void CGameClientShell::ProbeCameraField()
 //				CalibrateFovX has been in the tree since 13 August and has
 //				NEVER BEEN CALLED - nothing referenced it. So it is effectively
 //				untested code that renders twice out of band and reads the
-//				screen surface a pixel at a time.
-//				
+//				screen surface a pixel at a time, and the owner has already
+//				lost an evening to a startup crash today.
 //
 //				The wrapper exists because SEH cannot live in a function with
 //				C++ objects that have destructors, and CalibrateFovX is full of
 //				them. A fault here costs one log line, not the session
-//				(a project rule).
+//				(hard rule #3).
 //
 // ----------------------------------------------------------------------- //
 
@@ -20423,7 +20870,7 @@ void CGameClientShell::SweepCameraField()
 	// factor. Horizontal and vertical ratios that differ mean the picture
 	// handed to the runtime is stretched on one axis, and because that stretch
 	// is locked to the head rather than to the world, head rotation drags
-	// world features through it. That is the observed bending and warping, and
+	// world features through it. That is the "bending and warping" report, and
 	// no horizontal-only knob can reach it.
 	VRLog::Msg("");
 	VRLog::Msg("--- anisotropy: the warping number ---");
@@ -20550,7 +20997,7 @@ void CGameClientShell::SweepCameraField()
 	//
 	// VRQuitAfter is a wall-clock timer set before the run, so it has to be
 	// guessed generously - and every second of that guess is a game window
-	// sitting on the player's screen while the player is trying to work. The sweep
+	// sitting on the owner's screen while he is trying to work. The sweep
 	// knows exactly when it is done; nothing else has to.
 	//
 	// Set on its own variable rather than folded into VRQuitAfter, because a
@@ -20607,7 +21054,7 @@ void CGameClientShell::CalibrateFovY()
 //				warping: if the two axes are magnified by different factors the
 //				runtime is handed a picture that is stretched on one axis, and
 //				head rotation sweeps world features through that anisotropy.
-//				That is the observed bending, and it is exactly the
+//				That is the "bending" the owner reports, and it is exactly the
 //				failure a horizontal-only knob like VRFovXTest cannot touch -
 //				which is why sweeping it only ever changed the squish.
 //
@@ -20959,7 +21406,7 @@ void CGameClientShell::CalibrateAxis(LTBOOL bVertical)
 	}
 
 	// Restore before any arithmetic, so an early return cannot leave the camera
-	// modified (a project rule).
+	// modified (hard rule #5).
 	m_weaponModel.SetVisible(LTTRUE);
 	g_pLTClient->SetObjectRotation(m_hCamera, &rSavedRot);
 	g_pLTClient->SetObjectPos(m_hCamera, &vSavedPos);
@@ -21326,7 +21773,7 @@ void CGameClientShell::ApplyEyeOpticalCentre(const LTRotation& rBase, int nEye)
 	//
 	// The VERTICAL centre is the SAME for both eyes (-5.5 degrees), so it can
 	// only move both images up or down together. It cannot cause double
-	// vision, and it is the axis the player reported warping worst.
+	// vision, and it is the axis the owner reported warping worst.
 	//
 	// The HORIZONTAL centre is MIRRORED (-7 and +7), so it is the only one that
 	// can cross the eyes. Applying it produced exactly that - a double image,
@@ -21748,7 +22195,7 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 					// SURFACE width, not the eye viewport width. Measured: the
 					// owner found a 1.27x multiplier made doors correct, and
 					// in tangent space that is tan(68.7)/tan(54) = 1.86, i.e.
-					// screenWidth/viewportWidth = 1920/960 = 2 to within the player's
+					// screenWidth/viewportWidth = 1920/960 = 2 to within his
 					// ability to judge. Vertical is unaffected because the eye
 					// viewport is the full screen height.
 					//
@@ -21964,6 +22411,7 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 					s_fHeadRefX = hs.fHeadPosX;
 					s_fHeadRefY = hs.fHeadPosY;
 					s_fHeadRefZ = hs.fHeadPosZ;
+					VRRoom::NoteHeadRef(hs.fHeadPosX, hs.fHeadPosY, hs.fHeadPosZ);
 				}
 				s_fHeadPrevX = hs.fHeadPosX;
 				s_fHeadPrevY = hs.fHeadPosY;
@@ -21972,11 +22420,15 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 				const float fUnits = (g_vtVRUnitMM.GetFloat() > 0.01f)
 					? (1000.0f / g_vtVRUnitMM.GetFloat()) : 58.75f;
 
-				const float px = (hs.fHeadPosX - s_fHeadRefX) * fUnits;
+				// ROOM-SCALE: what the body has already walked (VRRoom.h) is in
+				// the body's position now, so it comes off the eyes.
+				float fCarryX = 0.0f, fCarryZ = 0.0f;
+				VRRoom::Carried(&fCarryX, &fCarryZ);
+				const float px = (hs.fHeadPosX - s_fHeadRefX - fCarryX) * fUnits;
 				const float py = (hs.fHeadPosY - s_fHeadRefY) * fUnits;
 				// OpenXR is -Z forward and right-handed; the game is
 				// left-handed. Same flip WeaponModel.cpp applies to the hands.
-				const float pz = -(hs.fHeadPosZ - s_fHeadRefZ) * fUnits;
+				const float pz = -(hs.fHeadPosZ - s_fHeadRefZ - fCarryZ) * fUnits;
 
 				// Room space maps into the world by the BODY's yaw, and by
 				// nothing else. Not by rViewRot: that already contains the
@@ -22003,6 +22455,32 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 				g_pLTClient->GetRotationVectors(&rYawOnly, &vYU, &vYR, &vYF);
 
 				vHeadOfs = vYR * px + LTVector(0.0f, 1.0f, 0.0f) * py + vYF * pz;
+
+				// CROUCH FOR REAL. The duck is the game's own (its collision fits
+				// where a crouch fits); its view drop is put back, because the head
+				// has already gone down by itself. Off on a vehicle.
+				{
+					const bool bOn = GetConsoleInt("VRRealCrouch", 0) > 0
+						&& !(m_MoveMgr.GetVehicleMgr() && m_MoveMgr.GetVehicleMgr()->IsVehiclePhysics());
+					const float fDrop = s_fHeadRefY - hs.fHeadPosY;		// metres below the recenter height
+					const bool bWas = s_bVRRealCrouch;
+					if (!bOn) s_bVRRealCrouch = false;
+					else if (!s_bVRRealCrouch && fDrop > 0.30f) s_bVRRealCrouch = true;
+					else if (s_bVRRealCrouch && fDrop < 0.22f) s_bVRRealCrouch = false;
+					if (s_bVRRealCrouch != bWas)
+						VRLog::Msg("VRRealCrouch: %s - the head is %.2f m below its recenter height",
+							s_bVRRealCrouch ? "crouching" : "standing up", fDrop);
+					// Given back while crouching for real AND while the game's camera is
+					// still rising after it, so standing up does not dip the eyes - but
+					// never under a duck the button made.
+					if (bOn && !s_bVRDuckButton && m_fCamDuck < 0.0f)
+						vHeadOfs.y -= m_fCamDuck;	// the game's own drop, given back
+				}
+
+				// THE WALL FADE: the eyes gone on with the head into a wall the
+				// body could not walk through go dark (VRRoom.h). First person only.
+				if (IsFirstPerson() && !IsUsingExternalCamera())
+					VRRoom::WallFade(vSavedPos, vSavedPos + vHeadOfs, m_MoveMgr.GetObject());
 
 				static int s_nHeadPosLogged = 0;
 				if (s_nHeadPosLogged++ % 500 == 0)
@@ -22134,7 +22612,7 @@ void CGameClientShell::RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide)
 // THE VR BODY'S LEGS. The server animates the player on trackers of its own
 // ("Upper", "Lower", see AnimatorPlayer.cpp) that the client's copy of the
 // object does not have: here her main tracker sat on animation 0 at time 0,
-// and the body stood in one pose and slid. The
+// and the body stood in one pose and slid (headset, 27 September). The
 // main tracker cannot be borrowed - the server re-sends its animation 0 and a
 // SetModelAnimation lasted a frame - so the client adds a tracker of its OWN,
 // weighted to the "Lower" set as the server's is, and plays on it what the
@@ -22197,6 +22675,21 @@ static void VRBodyAnimate(HLOCALOBJ hObj, CMoveMgr* pMove, HOBJECT hCamera)
 	static bool s_bMoving = false;
 	s_bMoving = s_bMoving ? (fSpeed > 8.0f) : (fSpeed > 20.0f);
 
+	// A JUMP, MEASURED: real time in the air and the height reached, so the
+	// game's physics can be compared at different frame rates.
+	{
+		static bool s_bAir = false;
+		static double s_fLeftMs = 0.0;
+		static float s_fStartY = 0.0f, s_fPeakY = 0.0f;
+		LTVector vP; g_pLTClient->GetObjectPos(pMove->GetObject(), &vP);
+		const bool bAir = !pMove->IsOnGround() && !pMove->IsBodyOnLadder();
+		if (bAir && !s_bAir) { s_fLeftMs = VRLog::NowMs(); s_fStartY = s_fPeakY = vP.y; }
+		if (bAir && vP.y > s_fPeakY) s_fPeakY = vP.y;
+		if (!bAir && s_bAir)
+			VRLog::Msg("VRJump: %.0f ms in the air, %.1f units high", VRLog::NowMs() - s_fLeftMs, s_fPeakY - s_fStartY);
+		s_bAir = bAir;
+	}
+
 	char szName[8] = "LSt";
 	bool bLoco = false, bUrgent = false;
 	// NO JUMP POSE IN THE AIR (VRBodyJumpPose 1 brings it back). The game's
@@ -22231,7 +22724,7 @@ static void VRBodyAnimate(HLOCALOBJ hObj, CMoveMgr* pMove, HOBJECT hCamera)
 		// off-hand or at a slant, so the heading sits on a boundary between
 		// two animations for long stretches, and every change restarted the
 		// stride at frame 0: moving, the legs never left it and the body slid
-		//. The current direction is kept until the
+		// (headset, 27 September). The current direction is kept until the
 		// heading is more than 65 degrees from its centre - 20 past the edge.
 		const float fAng = (float)atan2(sd, f) * 57.29578f;	// 0 forward, +90 right
 		const float fCentre = (s_cDir == 'F') ? 0.0f : (s_cDir == 'R') ? 90.0f
@@ -22316,7 +22809,7 @@ void CGameClientShell::UpdatePlayer()
 	// ...EXCEPT WHEN A VR BODY IS WANTED (Show body, See yourself in mirrors).
 	// The engine does not advance the animation of a model it is not drawing:
 	// hidden, her tracker sat at animation 0, time 0, and the body stood in
-	// one pose and slid. Visible, she animates;
+	// one pose and slid (headset, 27 September). Visible, she animates;
 	// our renderer still decides where she is drawn (see VRMODEL_F_HIDENODES
 	// and MIRRORONLY), and her attachments keep their own first-person rule.
 	const bool bVRBodyWanted = GetConsoleInt("VRShowBody", 1) != 0
@@ -23934,7 +24427,7 @@ LRESULT CALLBACK HookedWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
 
 void CGameClientShell::OnChar(HWND hWnd, char c, int rep)
 {
-	// DID A CHARACTER EVER ARRIVE? with a headset on, T
+	// DID A CHARACTER EVER ARRIVE? Headset testing, 19 September: with a headset on, T
 	// opens "Say:" and nothing can be typed into it. Those are two different
 	// roads and only one was fixed - the bind rides DirectInput, which the
 	// proxy now acquires in BACKGROUND, while the TEXT rides WM_CHAR, and a

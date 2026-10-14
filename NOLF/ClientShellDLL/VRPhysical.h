@@ -20,6 +20,11 @@
 //                   go down to a blow to the head they did not see coming.
 //   VRWristHud      Health, armor and the clip on the off-hand wrist, in the
 //                   game's own HUD font. Turn the wrist to read it.
+//   VRRackSlide     With manual reload: a gun fired empty takes its new clip
+//                   with the slide (or the action) back, and fires again only
+//                   once the off hand grips the gun and pulls it back.
+//   VRAmmoOnGun     The clip and the rounds left, on a small plate beside the
+//                   gun, facing the eyes.
 //   VRGlassesToFace The sunglasses (camera, mine detector, infrared) go on
 //                   when the hand brings them to the eyes and stay on; the hand
 //                   back at the eyes with the grip takes them off. In the hand
@@ -75,6 +80,16 @@ namespace VRPhysical
 	void	OnClipRanOut(CWeaponModel* pWM);
 	// The weapon was just selected: the clip it had when it was put away.
 	void	OnSelect(CWeaponModel* pWM);
+
+	// RACK THE SLIDE: a new clip in a gun fired empty, and the slide not yet
+	// pulled. The trigger does nothing.
+	bool	RackBlocksFire(CWeaponModel* pWM);
+
+	// FOR THE DRAWN GUN: how far back its slide or bolt is, 0 home to 1 fully
+	// back (pulled by the off hand, or locked back after firing empty), and
+	// whether its own magazine is out (the clip dropped and none in yet).
+	float	SlideBack();
+	bool	MagOut();
 
 	// The sunglasses are in hand but not at the eyes: the trigger does nothing.
 	bool	GlassesBlockFire(CWeaponModel* pWM);

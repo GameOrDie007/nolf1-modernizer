@@ -91,7 +91,7 @@ bool VRPrims_DrawnMuzzle(LTVector& vOut);
 // muzzle is wrong on every weapon, and a fixed offset back from the muzzle is
 // wrong on all but one, because the guns are different lengths (headset
 // testing, 19 September). The centroid of the drawn nodes is neither: it scales with
-// whatever model is in the player's hand.
+// whatever model is in his hand.
 void VRPrims_NoteDrawnGunCentre(const LTVector& vWorld);
 bool VRPrims_DrawnGunCentre(LTVector& vOut);
 void     VRPrims_RememberRebase();
@@ -119,6 +119,21 @@ void VRPrims_ClearScopeLens();
 // bottom-left, and an alpha for the whole panel. Good for the next publish
 // only, set it every frame it should show. LTNULL clears it.
 void VRPrims_SetSurfaceQuad(HSURFACE hSurf, const LTVector* pCorners, float fAlpha);
+
+// A FLAT DISC for this frame (a glove cuff's screen): its centre, two unit axes in
+// its plane, its radius, a colour (0..1) and an alpha. Depth-tested, unlit.
+void VRPrims_SetDisc(const LTVector& vC, const LTVector& vAx, const LTVector& vAy, float fR,
+					 const float* pRGB, float fAlpha);
+
+// A SOLID BOX for this frame (the clip in the hand): eight world corners, corner
+// i at (bit 0: -/+ across, bit 1: -/+ up, bit 2: -/+ along), the body colour and
+// the colour of its +up face. Faces are shaded by which way they face, so the
+// box reads as solid with no lighting.
+void VRPrims_SetSolidBox(const LTVector* pCorners, const float* pBody, const float* pTop);
+
+// THE WALL FADE: a black box round the eyes, drawn over everything, fAlpha
+// from 0 (clear) to 1 (black). Same corner order.
+void VRPrims_SetFadeBox(const LTVector* pCorners, float fAlpha);
 // Where the scope's picture is taken from, as last published; false when the
 // weapon in hand draws no scope lens.
 bool VRPrims_GetScopeObjective(LTVector& vObjective);

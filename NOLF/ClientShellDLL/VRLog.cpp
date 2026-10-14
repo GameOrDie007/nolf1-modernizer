@@ -11,6 +11,7 @@
 
 #include "stdafx.h"
 #include "VRLog.h"
+#include "VRCrash.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -140,6 +141,7 @@ void Init()
 	Line("cwd        : %s", szCwd);
 	Line("log        : %s", szPath);
 	Line("");
+	VRCrash::Install(szDir);
 	Line("Per-frame columns: ftr=frame-time reads  up=UpdatePlaying  wr=world renders  fs=FlipScreen");
 	Line("All four should read 1 on every rendered frame. Deviations are marked ANOMALY.");
 	Line("");

@@ -138,7 +138,7 @@ void CPopupText::ShowText(int nStringId)
 	height = (int)(g_pInterfaceResMgr->GetYRatio() * (LTFLOAT)height);
 	// A LETTER IS A PAGE, NOT A BANNER. The authored rectangle is nearly the
 	// screen's width, and the 2D layer spans the eye's width, so a note read
-	// across the whole view. In VR it is set in a
+	// across the whole view (headset, 24 September). In VR it is set in a
 	// centred column VRPopupWidth of the screen wide (default 0.34, about 32
 	// degrees); the rectangle's top and bottom are kept. 0 restores it.
 	// A narrower column is a taller one, so it may grow past the authored

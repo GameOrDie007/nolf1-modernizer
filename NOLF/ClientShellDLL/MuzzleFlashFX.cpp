@@ -31,7 +31,7 @@ VarTrack	g_vtVRFlashParticleWorld;	// VRFlashParticleWorld <0-1>: the particle f
 //
 // Guns whose player-view flash is a particle burst and a light with no model -
 // walther_smg, p38, revolver, contender, luger - never showed a flash in VR.
-// the muzzle flash for these guns was not
+// Headset testing, 20 September: the muzzle flash for these guns was not
 // showing up. The log said why: the particle object was handed to the publisher
 // "visible yes, reallyclose yes at 922 74 -1751" - a WORLD position, put there
 // by SetPos, still wearing FLAG_REALLYCLOSE, which Update re-applied every
@@ -500,7 +500,7 @@ void CMuzzleFlashFX::Show()
 		// stamp - so the AK47's particle burst, camera-relative and sitting
 		// at the camera's own origin, was drawn AT THE EYE on every shot,
 		// and continuously under the tuner's hold. Headset, HQ quick save,
-		// 21 September: a large strobing flash at the eye. Morocco
+		// 21 September: "a massive blinding flash that strobes". Morocco
 		// starts on the Hampton, so nothing stale existed and it never
 		// showed there.
 		const bool bHasFX = m_bUsingParticles || m_bUsingLight || m_bUsingScale;
@@ -610,7 +610,7 @@ void CMuzzleFlashFX::SetPos(LTVector vWorldPos, LTVector vCamRelPos)
 				// VRFlashTrace measures the offset in the SAME frame that places it,
 				// so it is self-consistent by construction, and its rate column is the
 				// HAND's yaw, which barely moves when the body turns. VRFlashPos caps
-				// at twelve lines. Both reported the flash welded to the gun while the player's
+				// at twelve lines. Both reported the flash welded to the gun while his
 				// own clip shows it swinging off the barrel through a turn.
 				//
 				// A READBACK CANNOT BE SELF-CONSISTENT. If the engine stores this
@@ -633,7 +633,7 @@ void CMuzzleFlashFX::SetPos(LTVector vWorldPos, LTVector vCamRelPos)
 						LTVector vOff = vBack - vWorldPos;
 						LTVector vRel = vBack - vGun;
 						// IN THE BODY'S FRAME, which is the one test a stick turn can
-						// fail. The distance stayed at 13.5 through a whole turn
+						// fail. The distance stayed at 13.5 through the tester's whole turn
 						// while the flash swung off the gun, because a world-fixed
 						// offset keeps its length. Decomposed on the camera object's
 						// basis - the body's, no head - a rigidly attached flash reads
@@ -697,7 +697,7 @@ void CMuzzleFlashFX::SetPos(LTVector vWorldPos, LTVector vCamRelPos)
 			// moves with the player, and a new one is left behind each time the
 			// effect is rebuilt, which is the three or four copies the tester saw.
 			//
-			// The tester watched this happen and described it exactly while the desk was
+			// He watched this happen and described it exactly while the desk was
 			// still calling it the impact. It is not the impact, it is not the
 			// tracer, and it is not the light - the light follows vWorldPos and
 			// was already right.

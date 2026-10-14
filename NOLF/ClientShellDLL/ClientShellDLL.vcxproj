@@ -518,8 +518,12 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClCompile Include="VRLog.cpp" />
     <ClCompile Include="VRShared.cpp" />
     <ClCompile Include="VRBinds.cpp" />
+    <ClCompile Include="VRBook.cpp" />
+    <ClCompile Include="VRRoom.cpp" />
+    <ClCompile Include="VRGunParts.cpp" />
     <ClCompile Include="VRWalk.cpp" />
     <ClCompile Include="VRPhysical.cpp" />
+    <ClCompile Include="VRCrash.cpp" />
     <ClCompile Include="VRPrims.cpp" />
     <ClCompile Include="VRHands.cpp" />
     <ClCompile Include="VideoFX.cpp" />
@@ -758,8 +762,12 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClInclude Include="VRLog.h" />
     <ClInclude Include="VRShared.h" />
     <ClInclude Include="VRBinds.h" />
+    <ClInclude Include="VRBook.h" />
+    <ClInclude Include="VRRoom.h" />
+    <ClInclude Include="VRGunParts.h" />
     <ClInclude Include="VRWalk.h" />
     <ClInclude Include="VRPhysical.h" />
+    <ClInclude Include="VRCrash.h" />
     <ClInclude Include="VRPrims.h" />
     <ClInclude Include="VideoFX.h" />
     <ClInclude Include="VKDefs.h" />

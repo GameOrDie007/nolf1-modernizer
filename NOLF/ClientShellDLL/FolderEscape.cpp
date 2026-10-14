@@ -7,12 +7,15 @@
 #include "FolderCommands.h"
 #include "ClientRes.h"
 #include "WinUtil.h"
+#include "VRBook.h"
 
 #include "GameClientShell.h"
 extern CGameClientShell* g_pGameClientShell;
 
 namespace
 {
+	const uint32 CMD_BOOK = FOLDER_CMD_CUSTOM + 1;
+
 	void QuitCallBack(LTBOOL bReturn, void *pData)
 	{
 		CFolderEscape *pThisFolder = (CFolderEscape *)pData;
@@ -30,6 +33,7 @@ CFolderEscape::CFolderEscape()
     m_pResumeCtrl = LTNULL;
     m_pSaveCtrl = LTNULL;
     m_pLoadCtrl = LTNULL;
+	m_pBookCtrl = LTNULL;
 
 }
 
@@ -54,6 +58,12 @@ LTBOOL CFolderEscape::Build()
 	m_pSaveCtrl = AddTextItem(IDS_SAVEGAME,	FOLDER_CMD_SAVE_GAME, IDS_HELP_SAVE);
 
 	AddTextItem(IDS_OPTIONS, FOLDER_CMD_OPTIONS, IDS_HELP_OPTIONS);
+
+	// THE MANUAL, as a book in the hand, when it ships beside the game. Greyed
+	// until the host's book layer says it can draw it.
+	if (VRBook::Installed())
+		m_pBookCtrl = AddTextItem("Game Manual", CMD_BOOK, 0);
+
 	AddTextItem(IDS_MAIN, FOLDER_CMD_MAIN, IDS_HELP_MAIN);
 	AddTextItem(IDS_EXIT, FOLDER_CMD_QUIT, IDS_HELP_EXIT);
 
@@ -108,6 +118,14 @@ uint32 CFolderEscape::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwPara
 			Escape();
 			break;
 		}
+	case CMD_BOOK:
+		{
+			// The layer shows the book over this menu and gives the
+			// controllers back when it closes; the menu waits underneath.
+			if (VRBook::Open())
+				g_pInterfaceMgr->RequestInterfaceSound(IS_SELECT);
+			break;
+		}
 	default:
 		return CBaseFolder::OnCommand(dwCommand,dwParam1,dwParam2);
 	}
@@ -138,6 +156,9 @@ void CFolderEscape::OnFocus(LTBOOL bFocus)
 		sprintf (strKey, "Reload");
 		CWinUtil::WinGetPrivateProfileString (GAME_NAME, strKey, "", strSaveGameSetting, 256, SAVEGAMEINI_FILENAME);
 		m_pLoadCtrl->Enable( (strlen (strSaveGameSetting) > 0) );
+
+		if (m_pBookCtrl)
+			m_pBookCtrl->Enable(VRBook::Ready());
 	}
 	CBaseFolder::OnFocus(bFocus);
 }

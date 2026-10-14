@@ -353,10 +353,10 @@ int CInterfaceResMgr::Get4x3Offset()
 
 // THE HUD IN A HEADSET. The HUD's positions scale with the screen and its
 // art scales by UIScale, which the tester keeps at 0.5; the 2D layer then fits the
-// whole 2560-wide layout into one eye at about 0.42. The tester's 12 September
+// whole 2560-wide layout into one eye at about 0.42. His 12 September
 // screenshots and a desk capture showed the ammo counter about 12 px tall in
 // a 1384-tall eye - a degree of arc - and pushed to the eye's far edge. So in
-// VR the HUD's art is scaled up by VRHudScale on top of the player's setting (default
+// VR the HUD's art is scaled up by VRHudScale on top of his setting (default
 // 2), and PlayerStats pulls each element in from the corners by VRHudInset.
 VarTrack g_vtVRHudScale;
 LTFLOAT CInterfaceResMgr::GetUIScale()
@@ -1093,8 +1093,8 @@ CLTGUIFont* CInterfaceResMgr::GetMsgForeFont()
 }
 
 // THE DIALOGUE BOXES A SHEET SMALLER. The question and choice boxes were right
-// in shape but about a quarter too large in the headset.
-// Scaling their layout alone would re-wrap the text, so the boxes
+// in shape but a little big in the headset (24 September: "about a quarter
+// smaller"). Scaling their layout alone would re-wrap the text, so the boxes
 // take their own copies of the medium and large faces at VRDialogueSize of the
 // menu's sheet (default 0.75: 4x -> 3x at a 2076-line screen) and the layout
 // scales by the same ratio (GetDialogueSizeRatio). Menus keep their fonts.

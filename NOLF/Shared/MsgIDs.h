@@ -184,6 +184,13 @@
 
 #define CP_DAMAGE_VEHICLE_IMPACT	7
 
+// VR: the duck button is held (1) or let go (0). The VR controllers set the
+// client's commands only; the server reads ducking from the engine's own
+// command state, which never sees them, so without this a VR player cannot
+// crouch in single player.
+
+#define CP_VRDUCK				8
+
 // Client update flags
 
 #define	CLIENTUPDATE_PLAYERROT		(1<<0)

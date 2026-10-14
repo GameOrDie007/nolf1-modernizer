@@ -41,7 +41,7 @@ class CFlashLight
 
 		// ---- THE TORCH YOU CAN SEE ----------------------------------------
 		//
-		// Requested in a visible flashlight
+		// Requested in headset testing, 19 September: a visible flashlight
 		// model when it is switched on, just like the guns - in a headset an unlit
 		// empty hand throwing a beam reads as nothing being held.
 		//

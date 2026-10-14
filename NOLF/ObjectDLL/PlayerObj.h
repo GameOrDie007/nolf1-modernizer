@@ -331,6 +331,7 @@ class CPlayerObj : public CCharacter
 
 		LTBOOL				m_bReadyToExit;
 		LTBOOL				m_bForceDuck;
+		LTBOOL				m_bVRDuck;		// CP_VRDUCK: the VR duck button is held
 
 		CPlayerSummaryMgr	m_PlayerSummary;
 

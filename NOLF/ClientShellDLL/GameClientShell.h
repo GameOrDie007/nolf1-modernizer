@@ -140,6 +140,10 @@ class CGameClientShell : public IClientShell
 		CJukeboxButeMgr* GetJukeboxButeMgr()			{ return &m_JukeBoxButeMgr; }
 
 		HLOCALOBJ		GetCamera()				const	{ return m_hCamera; }
+		// The head's offset from the camera object, in world units, as the eyes
+		// are drawn this frame (zero when head tracking is off). What is held in
+		// the hands is placed from the camera PLUS this, the real eye.
+		LTVector		VRHeadOffsetNow(bool bEvenIfOff = false);
 		HLOCALOBJ		GetInterfaceCamera()	const	{ return m_hInterfaceCamera; }
 		// Square the interface camera up before a card folder places its 3D
 		// pieces (CBaseFolder::CreateInterfaceSFX). See the definition.
@@ -339,7 +343,7 @@ class CGameClientShell : public IClientShell
 		// Test only: select a weapon on world entry, retried until the server
 		// has actually handed it over. See VRDebugWeapon.
 		void		VRDebugSelectWeapon();
-		// True when the player's own stats say the player carries a firearm - the only
+		// True when the player's own stats say he carries a firearm - the only
 		// way to tell whether the arsenal cheat actually landed.
 		bool		VRHasAnyGun();
 
@@ -368,7 +372,7 @@ class CGameClientShell : public IClientShell
         // VR: draws the world once or twice, optionally offset per eye into
         // side-by-side viewports. Separate function so it can use
         // __try/__finally - camera state must be restored even on a structured
-        // exception (a project rule), and SEH will not run C++ destructors.
+        // exception (hard rule #5), and SEH will not run C++ destructors.
         void        RenderWorldEyes(int nWorldRenders, LTBOOL bSideBySide);
 
         // Points one eye's camera at its own optical centre. The Quest's
@@ -451,7 +455,7 @@ class CGameClientShell : public IClientShell
         void        QuitAfterSweepIfAsked();
 
         // The heading the sweep turned the camera away from, so it can be put
-        // back on every exit path including the early ones (a project rule).
+        // back on every exit path including the early ones (hard rule #5).
         LTRotation  m_rSweepSavedRot;
         LTBOOL      m_bSweepRotSaved;
 
@@ -518,8 +522,8 @@ class CGameClientShell : public IClientShell
 
         // Eye separation in world units: from the headset's reported IPD when
         // VRIPDAuto is on and the value is plausible, otherwise the fixed
-        // VRIPD. Guards against a loose headset IPD wheel silently changing
-        // the stereo baseline between two runs being compared.
+        // VRIPD. Guards against the owner's loose IPD wheel silently changing
+        // the stereo baseline between two runs he is comparing.
         float       EffectiveIPDUnits();
 
         // While non-zero, the right half is yawed by a known angle so the host

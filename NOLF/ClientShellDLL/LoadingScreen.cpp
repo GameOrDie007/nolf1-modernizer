@@ -445,7 +445,7 @@ LTBOOL CLoadingScreen::Update()
 	// notification or a streaming overlay landing on a loading screen walks
 	// into it. Two crashes in one night of chain arms, both here.
 	//
-	// Degrade, never crash (the project rules rule 3). A skipped loading-screen frame
+	// Degrade, never crash (CLAUDE.md rule 3). A skipped loading-screen frame
 	// is invisible; the alternative is losing the session.
 	if (!g_pLayoutMgr || !g_pInterfaceMgr || !g_pInterfaceResMgr || !g_pLTClient)
 		return LTFALSE;

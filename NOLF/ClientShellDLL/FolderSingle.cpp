@@ -9,6 +9,7 @@
 #include "ClientRes.h"
 #include "WinUtil.h"
 #include "GameClientShell.h"
+#include "VRShared.h"
 extern CGameClientShell* g_pGameClientShell;
 
 
@@ -75,7 +76,13 @@ uint32 CFolderSingle::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwPara
 	{
 	case FOLDER_CMD_NEW_GAME:
 		{
-			g_pInterfaceMgr->SwitchToFolder(FOLDER_ID_DIFFICULTY);
+			// In VR the first new game asks how to play first (FolderVR,
+			// FOLDER_ID_VR_STYLE), which then goes on to the difficulty.
+			if ((VRShared::IsLive() || GetConsoleInt("VRStereo", 0) > 0)
+				&& GetConsoleInt("VRPlayStyleAsked", 0) == 0)
+				g_pInterfaceMgr->SwitchToFolder(FOLDER_ID_VR_STYLE);
+			else
+				g_pInterfaceMgr->SwitchToFolder(FOLDER_ID_DIFFICULTY);
 			break;
 		}
 	case CMD_GALLERY:

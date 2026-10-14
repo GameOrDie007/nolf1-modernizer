@@ -292,7 +292,7 @@ namespace
 			const VRViewRebase& rbUse = s_Rebase.bKnown ? s_Rebase : VRPrims_RebaseLast();
 			if (!rbUse.bKnown) { ++s_nPSCloseDropped; return; }
 			if (!s_Rebase.bKnown) ++s_nPSCloseLast;
-			// THE BARREL END IF WE HAVE IT. with
+			// THE BARREL END IF WE HAVE IT. Headset testing, 19 September: with
 			// the tracer fixed, the trail came out of the barrel but the muzzle
 			// flash did not. For this weapon the flash is not a model at all -
 			// the diagnostic reads "scale no particles yes light yes" - so it
@@ -464,10 +464,10 @@ namespace
 		// IS THE WATER ACTUALLY MOVING? A checksum of the height field, for
 		// ONE grid, reported every few seconds with how much it changed.
 		//
-		// the waterfall did not move. The cause was
+		// Headset testing, 11 September: the waterfall did not move. The cause was
 		// not in the renderer at all - PolyGridFX::Update returns before it
 		// touches the plasma when the PolyGrids setting is off, and that
-		// setting did not EXIST in the tester's config, so it read as zero. A frozen
+		// setting did not EXIST in his config, so it read as zero. A frozen
 		// height field and a correctly drawn still surface look identical in
 		// a screenshot, so the honest instrument is the numbers themselves.
 		{
@@ -567,7 +567,7 @@ namespace
 		// willing to answer.
 		//
 		// VRPolyGridHeight is now a MULTIPLIER on the authored height, 1.0
-		// being the game's own. It only has to be touched if the eyes say
+		// being the game's own. It only has to be touched if his eyes say
 		// the authored value reads small in a headset, which is a different
 		// claim from the one this code used to make.
 		float fAuthoredY = 0.0f;
@@ -604,7 +604,7 @@ namespace
 		// HOW OFTEN THE WATER TEXTURE REPEATS. At the engine's scale of 1.0 the
 		// sprite was stretched once over the whole 912-unit pool and came out
 		// as a smooth wash; retail's pond is mottled at a much finer grain
-		// (the 14 September clip). VRPolyGridTexRepeat multiplies the scale.
+		// (his 14 September clip). VRPolyGridTexRepeat multiplies the scale.
 		const float fRep = (g_vtVRPolyGridTexRepeat.GetFloat() > 0.0f) ? g_vtVRPolyGridTexRepeat.GetFloat() : 1.0f;
 		// HOW WIDE IS THE SHEET? n x scale, and this was MEASURED rather than
 		// reasoned - twice, because the first answer was wrong.
@@ -663,7 +663,7 @@ namespace
 		// colour and ignores the texture's. WA0010's own alpha averages 0.55,
 		// so multiplying it by the level's SurfaceAlpha 0.8 left the HQ pool at
 		// 0.44 - a faint film with the green floor showing through, where
-		// retail's pool is the blue texture at 0.8 (the retail screenshot,
+		// retail's pool is the blue texture at 0.8 (his retail screenshot,
 		// 22 September). VRPolyGridDiffuseAlpha 0 multiplies them again.
 		uint32 nPGFlags = BlendFlagsOf(h);
 		if (g_vtVRPolyGridDiffuseAlpha.GetFloat() > 0.0f) nPGFlags |= VRPRIM_F_DIFFUSEALPHA;
@@ -683,7 +683,7 @@ namespace
 		// scrolling the pool's texture forever at a hundredth of a repeat a
 		// second - slow, but never still, and never what the level asked for.
 		//
-		// Measured against the retail clip of the HQ pool (2026-09-17
+		// Measured against his retail clip of the HQ pool (2026-09-17
 		// 01-58-48.mp4, 60 fps): a patch of open water cross-correlated
 		// frame to frame moves 0.00 px/frame in x and in y over sixty
 		// frames. Retail does not scroll this pool's texture AT ALL, and
@@ -744,7 +744,7 @@ namespace
 					// first twenty. Anchored at ii = 0 that zoom also
 					// TRANSLATES: the far edge of the sheet walks a full
 					// texture repeat across the pool and then walks back when
-					// the ramp turns round. the
+					// the ramp turns round. Headset testing, 17 September: the
 					// texture still had a loop to it that read as a stutter.
 					//
 					// Scaling about 0.5 makes it breathe symmetrically - the
@@ -1035,9 +1035,9 @@ const VRViewRebase& VRPrims_RebaseLast() { return s_RebaseLast; }
 
 // THE ROTATION THAT CARRIES BODY YAW. See VRPrims.h.
 //
-// Measured on a right-stick turn, 20 September (VRFlashBack, 400
+// Measured on the tester's own right-stick turn, 20 September (VRFlashBack, 400
 // samples): the flash sat a near-constant 13.5 units from the drawn gun while
-// its heading moved only with the player's HAND - the body turned and the offset did
+// its heading moved only with his HAND - the body turned and the offset did
 // not. Three fixes that changed the origin, or where the rotation came from,
 // measured worse and were reverted. The offset had the right length and the
 // wrong FRAME.
@@ -1198,7 +1198,7 @@ void VRPrims_Init()
 	//
 	// So this is a VR LEGIBILITY setting, in the same family as HUD scale,
 	// and it is the one number here that is deliberately NOT the game's.
-	// 4.0 is a starting point for the eyes, not a claim about the level; the
+	// 4.0 is a starting point for his eyes, not a claim about the level; the
 	// cvar is the dial and it persists, so it can be tuned in one session
 	// without a rebuild.
 	// 17 September, with the glass sheet off it at last: the water finally
@@ -1218,11 +1218,11 @@ void VRPrims_Init()
 	// The pan is texture repeats per second per pan unit. PolyGrid.cpp's
 	// property default is 10 and the HQ waterfall asks for 1.0; at the old
 	// 0.01 the waterfall and Morocco's pool stood still (headset testing, 13
-	// September: no water animation). 1.0 is the plain reading of the number; the tester's eye
+	// September: no water animation). 1.0 is the plain reading of the number; his eye
 	// against retail decides whether it is too fast or too slow.
 	// A still pool carries pan 1.0 (VolumeBrush::CreateSurface: 1.0 plus a
 	// hundredth of its Current) and retail's still water barely drifts, so
-	// 1.0 repeats/second was far too fast (
+	// 1.0 repeats/second was far too fast (headset testing, 13 September:
 	// the pool raced and the fountain flowed). 0.1 until a retail clip of the HQ
 	// waterfall and pool gives the real rate.
 	// BACK TO 0.01 (headset testing, 13 September evening): at 1.0 the pool raced, at
@@ -1232,7 +1232,7 @@ void VRPrims_Init()
 	// PublishPolyGrid). 1.0 is what the brush asked for.
 	g_vtVRPolyGridPan.Init(g_pLTClient, "VRPolyGridPan", LTNULL, 1.0f);
 	// THE RIPPLE IS IN THE TEXTURE COORDINATES, not only in the height.
-	// Retail's HQ waterfall (a retail clip, 13 September, 30 fps): the
+	// Retail's HQ waterfall (the tester's retail clip, 13 September, 30 fps): the
 	// streaks of the water texture sway sideways every frame with no scroll
 	// at all - the engine offsets each vertex's texture coordinate by its
 	// height byte, which is what a 7 x 7 sheet of plasma looks like head-on.
@@ -1241,7 +1241,7 @@ void VRPrims_Init()
 	// against that clip.
 	// OFF (0): tried at 0.06 and it made the fountain sway unnaturally; the
 	// retail motion is the vertices, not the picture. Kept as a switch.
-	// 0.03 (14 September): the retail clip sways the texture with the height;
+	// 0.03 (14 September): his retail clip sways the texture with the height;
 	// 0.06 read as unnatural in the fountain when the fountain heaved as much
 	// as the pool. It no longer does.
 	// NOT AN AUTHORED EFFECT. CPolyGridFX::UpdateSurface pans and scales the
@@ -1368,38 +1368,161 @@ static void PublishScope(uint32 nFrame)
 // THE SURFACE PANEL (VRPrims_SetSurfaceQuad): two triangles, depth-tested, the
 // panel's alpha on every vertex (VRPRIM_F_DIFFUSEALPHA), the surface handle in
 // nObject for the renderer to find and upload.
+// Up to kQuads a frame (the wrist display, the ammo on the gun), each with its
+// own surface.
 namespace
 {
-	HSURFACE s_hQuadSurf = LTNULL;
-	LTVector s_vQuad[4];
-	float    s_fQuadAlpha = 1.0f;
+	const int kQuads = 4;
+	HSURFACE s_hQuadSurf[kQuads] = { LTNULL, LTNULL, LTNULL, LTNULL };
+	LTVector s_vQuad[kQuads][4];
+	float    s_fQuadAlpha[kQuads] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	int      s_nQuads = 0;
 }
 void VRPrims_SetSurfaceQuad(HSURFACE hSurf, const LTVector* pCorners, float fAlpha)
 {
-	s_hQuadSurf = hSurf;
-	if (hSurf && pCorners) for (int i = 0; i < 4; ++i) s_vQuad[i] = pCorners[i];
-	s_fQuadAlpha = fAlpha;
+	if (!hSurf || !pCorners || s_nQuads >= kQuads) return;
+	s_hQuadSurf[s_nQuads] = hSurf;
+	for (int i = 0; i < 4; ++i) s_vQuad[s_nQuads][i] = pCorners[i];
+	s_fQuadAlpha[s_nQuads] = fAlpha;
+	++s_nQuads;
 }
+namespace
+{
+	const int kBoxes = 3;
+	LTVector s_vBox[kBoxes][8];
+	float    s_fBoxBody[kBoxes][3], s_fBoxTop[kBoxes][3];
+	float    s_fBoxAlpha[kBoxes];
+	bool     s_bBoxFade[kBoxes];
+	int      s_nBoxes = 0;
+}
+void VRPrims_SetSolidBox(const LTVector* pCorners, const float* pBody, const float* pTop)
+{
+	if (!pCorners || s_nBoxes >= kBoxes) return;
+	for (int i = 0; i < 8; ++i) s_vBox[s_nBoxes][i] = pCorners[i];
+	for (int a = 0; a < 3; ++a) { s_fBoxBody[s_nBoxes][a] = pBody[a]; s_fBoxTop[s_nBoxes][a] = pTop[a]; }
+	s_fBoxAlpha[s_nBoxes] = 1.0f;
+	s_bBoxFade[s_nBoxes] = false;
+	++s_nBoxes;
+}
+void VRPrims_SetFadeBox(const LTVector* pCorners, float fAlpha)
+{
+	if (!pCorners || s_nBoxes >= kBoxes) return;
+	for (int i = 0; i < 8; ++i) s_vBox[s_nBoxes][i] = pCorners[i];
+	for (int a = 0; a < 3; ++a) { s_fBoxBody[s_nBoxes][a] = 0.0f; s_fBoxTop[s_nBoxes][a] = 0.0f; }
+	s_fBoxAlpha[s_nBoxes] = (fAlpha < 0.0f) ? 0.0f : (fAlpha > 1.0f) ? 1.0f : fAlpha;
+	s_bBoxFade[s_nBoxes] = true;
+	++s_nBoxes;
+}
+static void PublishBoxes()
+{
+	for (int b = 0; b < s_nBoxes; ++b)
+	{
+		VRPrimRun* r = BeginRun(VRPRIM_T_TRIS, s_bBoxFade[b] ? (VRPRIM_F_NOTEX | VRPRIM_F_NOZREAD | VRPRIM_F_DIFFUSEALPHA)
+														 : (VRPRIM_F_NOTEX | VRPRIM_F_ZWRITE), "", 3, LTNULL);
+		if (!r) break;
+		// Six faces: axis 0 across, 1 up, 2 along; each side, both windings so
+		// no face is culled away.
+		static const float kShade[3][2] = { { 0.70f, 0.70f }, { 0.45f, 1.0f }, { 0.58f, 0.85f } };
+		for (int ax = 0; ax < 3; ++ax)
+			for (int side = 0; side < 2; ++side)
+			{
+				const int o1 = (ax + 1) % 3, o2 = (ax + 2) % 3;
+				int c[4];
+				for (int k = 0; k < 4; ++k)
+				{
+					const int b1 = (k == 1 || k == 2) ? 1 : 0, b2 = (k >= 2) ? 1 : 0;
+					c[k] = (side << ax) | (b1 << o1) | (b2 << o2);
+				}
+				const bool bTop = (ax == 1 && side == 1);
+				const float* col = bTop ? s_fBoxTop[b] : s_fBoxBody[b];
+				const float sh = bTop ? 1.0f : kShade[ax][side];
+				static const int kTri[12] = { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 };
+				for (int t = 0; t < 12; ++t)
+				{
+					VRPrimVert* v = AddVert(r);
+					if (!v) break;
+					const LTVector& p = s_vBox[b][c[kTri[t]]];
+					v->fPos[0] = p.x; v->fPos[1] = p.y; v->fPos[2] = p.z;
+					v->fColour[0] = col[0] * sh; v->fColour[1] = col[1] * sh; v->fColour[2] = col[2] * sh;
+					v->fColour[3] = s_fBoxAlpha[b];
+					v->fUV[0] = v->fUV[1] = 0.0f; v->fSize = 0.0f;
+				}
+			}
+		LTVector vC(0.0f, 0.0f, 0.0f);
+		for (int i = 0; i < 8; ++i) vC += s_vBox[b][i];
+		EndRun(r, vC * 0.125f);
+	}
+	s_nBoxes = 0;		// one frame's worth
+}
+
+namespace
+{
+	const int kDiscs = 2;
+	LTVector s_vDiscC[kDiscs], s_vDiscX[kDiscs], s_vDiscY[kDiscs];
+	float    s_fDiscR[kDiscs], s_fDiscRGB[kDiscs][3], s_fDiscA[kDiscs];
+	int      s_nDiscs = 0;
+}
+void VRPrims_SetDisc(const LTVector& vC, const LTVector& vAx, const LTVector& vAy, float fR,
+					 const float* pRGB, float fAlpha)
+{
+	if (!pRGB || s_nDiscs >= kDiscs) return;
+	s_vDiscC[s_nDiscs] = vC; s_vDiscX[s_nDiscs] = vAx; s_vDiscY[s_nDiscs] = vAy;
+	s_fDiscR[s_nDiscs] = fR; s_fDiscA[s_nDiscs] = fAlpha;
+	for (int a = 0; a < 3; ++a) s_fDiscRGB[s_nDiscs][a] = pRGB[a];
+	++s_nDiscs;
+}
+static void PublishDiscs()
+{
+	const int kSeg = 48;
+	for (int d = 0; d < s_nDiscs; ++d)
+	{
+		VRPrimRun* r = BeginRun(VRPRIM_T_TRIS, VRPRIM_F_NOTEX | VRPRIM_F_DIFFUSEALPHA, "", 3, LTNULL);
+		if (!r) break;
+		for (int k = 0; k < kSeg; ++k)
+		{
+			const float a0 = 6.2831853f * (float)k / (float)kSeg, a1 = 6.2831853f * (float)(k + 1) / (float)kSeg;
+			const LTVector p0 = s_vDiscC[d];
+			const LTVector p1 = s_vDiscC[d] + (s_vDiscX[d] * (float)cos(a0) + s_vDiscY[d] * (float)sin(a0)) * s_fDiscR[d];
+			const LTVector p2 = s_vDiscC[d] + (s_vDiscX[d] * (float)cos(a1) + s_vDiscY[d] * (float)sin(a1)) * s_fDiscR[d];
+			// both windings, so neither side is culled away
+			const LTVector* tri[6] = { &p0, &p1, &p2, &p0, &p2, &p1 };
+			for (int t = 0; t < 6; ++t)
+			{
+				VRPrimVert* v = AddVert(r);
+				if (!v) break;
+				v->fPos[0] = tri[t]->x; v->fPos[1] = tri[t]->y; v->fPos[2] = tri[t]->z;
+				v->fColour[0] = s_fDiscRGB[d][0]; v->fColour[1] = s_fDiscRGB[d][1]; v->fColour[2] = s_fDiscRGB[d][2];
+				v->fColour[3] = s_fDiscA[d];
+				v->fUV[0] = v->fUV[1] = 0.0f; v->fSize = 0.0f;
+			}
+		}
+		EndRun(r, s_vDiscC[d]);
+	}
+	s_nDiscs = 0;		// one frame's worth
+}
+
 static void PublishSurfaceQuad()
 {
-	if (!s_hQuadSurf) return;
-	VRPrimRun* r = BeginRun(VRPRIM_T_TRIS, VRPRIM_F_SURFACE | VRPRIM_F_CLAMP | VRPRIM_F_DIFFUSEALPHA,
-							"surface", 3, (HLOCALOBJ)s_hQuadSurf);
-	if (!r) return;
 	static const int kIdx[6] = { 0, 1, 2, 0, 2, 3 };
 	static const float kUV[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
-	for (int k = 0; k < 6; ++k)
+	for (int q = 0; q < s_nQuads; ++q)
 	{
-		VRPrimVert* v = AddVert(r);
-		if (!v) break;
-		const LTVector& p = s_vQuad[kIdx[k]];
-		v->fPos[0] = p.x; v->fPos[1] = p.y; v->fPos[2] = p.z;
-		v->fColour[0] = v->fColour[1] = v->fColour[2] = 1.0f;
-		v->fColour[3] = s_fQuadAlpha;
-		v->fUV[0] = kUV[kIdx[k]][0]; v->fUV[1] = kUV[kIdx[k]][1]; v->fSize = 0.0f;
+		VRPrimRun* r = BeginRun(VRPRIM_T_TRIS, VRPRIM_F_SURFACE | VRPRIM_F_CLAMP | VRPRIM_F_DIFFUSEALPHA,
+								"surface", 3, (HLOCALOBJ)s_hQuadSurf[q]);
+		if (!r) break;
+		for (int k = 0; k < 6; ++k)
+		{
+			VRPrimVert* v = AddVert(r);
+			if (!v) break;
+			const LTVector& p = s_vQuad[q][kIdx[k]];
+			v->fPos[0] = p.x; v->fPos[1] = p.y; v->fPos[2] = p.z;
+			v->fColour[0] = v->fColour[1] = v->fColour[2] = 1.0f;
+			v->fColour[3] = s_fQuadAlpha[q];
+			v->fUV[0] = kUV[kIdx[k]][0]; v->fUV[1] = kUV[kIdx[k]][1]; v->fSize = 0.0f;
+		}
+		EndRun(r, (s_vQuad[q][0] + s_vQuad[q][2]) * 0.5f);
 	}
-	EndRun(r, (s_vQuad[0] + s_vQuad[2]) * 0.5f);
-	s_hQuadSurf = LTNULL;		// one frame's worth; the caller sets it again
+	s_nQuads = 0;		// one frame's worth; the callers set them again
 }
 
 void VRPrims_Publish(const LTVector& vEye, float fRange, uint32 nFrame)
@@ -1544,7 +1667,9 @@ void VRPrims_Publish(const LTVector& vEye, float fRange, uint32 nFrame)
 	PublishCanvas();
 
 	PublishScope(nFrame);
+	PublishDiscs();			// before the panels drawn on them
 	PublishSurfaceQuad();
+	PublishBoxes();
 	s_pfn(&s_frame);
 
 	static uint32 s_nSaidAt = 0;

@@ -8,7 +8,7 @@
 //           Fails open in every direction: if the host is absent, stopped, or
 //           writing a torn frame, the client keeps its last good pose and
 //           reports not-live, so the game runs flat rather than freezing on
-//           stale tracking (a project rule).
+//           stale tracking (hard rule #3).
 //
 // ----------------------------------------------------------------------- //
 
@@ -16,6 +16,8 @@
 #include "VRShared.h"
 #include <intrin.h>
 #include "VRLog.h"
+#include "ClientUtilities.h"
+#include <math.h>
 
 namespace
 {
@@ -142,6 +144,12 @@ bool Poll()
 			memcpy(g_Snapshot.fAimToGrip[1], g, sizeof(g));
 			uint32_t t = g_Snapshot.nGripValid[0]; g_Snapshot.nGripValid[0] = g_Snapshot.nGripValid[1]; g_Snapshot.nGripValid[1] = t;
 			t = g_Snapshot.nTouch[0]; g_Snapshot.nTouch[0] = g_Snapshot.nTouch[1]; g_Snapshot.nTouch[1] = t;
+			// the menu pointer goes with its hand too (v22)
+			t = g_Snapshot.nPointer[0]; g_Snapshot.nPointer[0] = g_Snapshot.nPointer[1]; g_Snapshot.nPointer[1] = t;
+			float p[2];
+			memcpy(p, g_Snapshot.fPointer[0], sizeof(p));
+			memcpy(g_Snapshot.fPointer[0], g_Snapshot.fPointer[1], sizeof(p));
+			memcpy(g_Snapshot.fPointer[1], p, sizeof(p));
 		}
 		// THE STICKS ARE THEIR OWN CHOICE. A left-handed player holds the gun in
 		// the left hand and still moves with the left stick - asked by the
@@ -234,6 +242,49 @@ bool IsLive()
 void SetSwapHands(bool bSwap) { g_bSwapHands = bSwap; }
 void SetSwapSticks(bool bSwap) { g_bSwapSticks = bSwap; }
 bool SwapSticks() { return g_bSwapSticks; }
+void GunPalmShift(float d[3])
+{
+	d[0] = d[1] = d[2] = 0.0f;
+	if (GetConsoleFloat("VRGunAtPalm", 1.0f) <= 0.0f) return;
+	PalmShift(1, d);
+}
+
+void PalmShift(int nHand, float d[3])
+{
+	d[0] = d[1] = d[2] = 0.0f;
+	if (nHand < 0 || nHand > 1 || !g_Snapshot.nGripValid[nHand]) return;
+	const VRHandState& h = g_Snapshot.Hands[nHand];
+	if (!h.nActive) return;
+	// The hand's rotation as VRPhysical builds it: yaw, then pitch, then roll.
+	const float k = 0.01745329f * 0.5f;
+	const float hy = h.fYawDeg * k, hp = h.fPitchDeg * k, hr = h.fRollDeg * k;
+	const float qy[4] = { 0.0f, (float)sin(hy), 0.0f, (float)cos(hy) };
+	const float qp[4] = { (float)sin(hp), 0.0f, 0.0f, (float)cos(hp) };
+	const float qr[4] = { 0.0f, 0.0f, (float)sin(hr), (float)cos(hr) };
+	auto Mul = [](const float* a, const float* b, float* o)
+	{
+		o[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+		o[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+		o[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+		o[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+	};
+	float t[4], q[4];
+	Mul(qy, qp, t); Mul(t, qr, q);
+	// v' = v + 2w (q x v) + 2 q x (q x v), with v the palm in the aim frame
+	const float* g = g_Snapshot.fAimToGrip[nHand];
+	const float v[3] = { g[0], g[1], g[2] };
+	const float c1[3] = { q[1] * v[2] - q[2] * v[1], q[2] * v[0] - q[0] * v[2], q[0] * v[1] - q[1] * v[0] };
+	const float c2[3] = { q[1] * c1[2] - q[2] * c1[1], q[2] * c1[0] - q[0] * c1[2], q[0] * c1[1] - q[1] * c1[0] };
+	for (int a = 0; a < 3; ++a) d[a] = v[a] + 2.0f * q[3] * c1[a] + 2.0f * c2[a];
+	static bool s_bSaid = false;
+	if (!s_bSaid && nHand == 1)
+	{
+		s_bSaid = true;
+		VRLog::Msg("VRGunAtPalm: the gun goes to the palm, (%.3f %.3f %.3f) m from the controller in its own frame",
+			v[0], v[1], v[2]);
+	}
+}
+
 bool SwapHands() { return g_bSwapHands; }
 
 bool HostGone()
@@ -287,6 +338,14 @@ void Haptic(int nHand, float fAmp, float fMs)
 {
 	if (!g_pShared) return;
 	if (g_pShared->nVersion < 17) return;
+	// RUMBLE STRENGTH (VR Options > Hands and Weapons), in percent of the
+	// game's own pulses: the amplitude scales, and above 100 the pulse also
+	// lasts longer, because a short pulse at full amplitude is still faint on
+	// some controllers.
+	const float fK = GetConsoleFloat("VRHapticsStrength", 100.0f) / 100.0f;
+	if (fK <= 0.0f) return;
+	fAmp *= fK;
+	if (fK > 1.0f) fMs *= fK;
 	// The game names the LOGICAL hand; the host pulses a PHYSICAL controller.
 	g_pShared->nHapticHand = (uint32_t)(((nHand ? 1 : 0) ^ (g_bSwapHands ? 1 : 0)) & 1);
 	g_pShared->fHapticAmp  = (fAmp < 0.0f) ? 0.0f : (fAmp > 1.0f ? 1.0f : fAmp);

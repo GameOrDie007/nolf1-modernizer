@@ -1148,7 +1148,7 @@ void CNodeController::HandleNodeConrolLipSync(HSTRING hSound, LTFLOAT fRadius)
 	LTBOOL bSubtitles = LTFALSE;
 	m_aNodeControls[iNodeControl].hLipSyncSound = m_pCharacterFX->PlayLipSyncSound(szSound, fRadius, bSubtitles);
 	m_aNodeControls[iNodeControl].bShowingSubtitles = bSubtitles;
-	// VR DIAGNOSTIC. no spoken dialogue and
+	// VR DIAGNOSTIC. Headset testing, 12 September: no spoken dialogue and
 	// no mouth movement during a cutscene. The mouth is driven off this very handle,
 	// so a voice that never starts, or that the engine reports done at once,
 	// silences the character AND freezes the jaw. Record the start here and

@@ -12,10 +12,13 @@
 #include "GameClientShell.h"
 #include "ModelButeMgr.h"
 #include "SDL.h"
+#include "VRBook.h"
 
 extern CGameClientShell* g_pGameClientShell;
 namespace
 {
+	const uint32 CMD_BOOK = FOLDER_CMD_CUSTOM + 1;
+
 	void QuitCallBack(LTBOOL bReturn, void *pData)
 	{
 		CFolderMain *pThisFolder = (CFolderMain *)pData;
@@ -32,6 +35,7 @@ CFolderMain::CFolderMain()
 {
     m_BuildVersion = LTNULL;
     m_pResume = LTNULL;
+	m_pBook = LTNULL;
 }
 
 CFolderMain::~CFolderMain()
@@ -65,6 +69,16 @@ LTBOOL CFolderMain::Build()
 	AddLink(IDS_OPTIONS,FOLDER_CMD_OPTIONS,	IDS_HELP_OPTIONS,pos.x,	pos.y);
 
 	pos = g_pLayoutMgr->GetFolderCustomPoint((eFolderID)m_nFolderID,"QuitPos");
+	// THE MANUAL, as a book in the hand, when it ships beside the game: in
+	// Quit's place, and Quit one row further down. In VR the controller's Menu
+	// button opens this menu, so the row is here as well as on the Esc menu.
+	if (VRBook::Installed())
+	{
+		const LTIntPt opt = g_pLayoutMgr->GetFolderCustomPoint((eFolderID)m_nFolderID,"OptionsPos");
+		m_pBook = CreateTextItem((char*)"Game Manual", CMD_BOOK, 0);
+		if (m_pBook) AddFixedControl(m_pBook, pos);
+		pos.y += pos.y - opt.y;
+	}
 	AddLink(IDS_EXIT,FOLDER_CMD_QUIT,IDS_HELP_EXIT,	pos.x,	pos.y);
 
 	m_BuildVersion = g_pLTClient->CreateString((char*)g_pVersionMgr->GetVersion());
@@ -105,6 +119,8 @@ void CFolderMain::OnFocus(LTBOOL bFocus)
 			CWinUtil::WinGetPrivateProfileString (GAME_NAME, strKey, "", strSaveGameSetting, 256, SAVEGAMEINI_FILENAME);
 			m_pResume->Enable( (strlen (strSaveGameSetting) > 0) );
 		}
+		if (m_pBook)
+			m_pBook->Enable(VRBook::Ready());
 	}
 	CBaseFolder::OnFocus(bFocus);
 }
@@ -160,6 +176,12 @@ uint32 CFolderMain::OnCommand(uint32 dwCommand, uint32 dwParam1, uint32 dwParam2
 	case FOLDER_CMD_RESUME:
 		{
 			Escape();
+			break;
+		}
+	case CMD_BOOK:
+		{
+			if (VRBook::Open())
+				g_pInterfaceMgr->RequestInterfaceSound(IS_SELECT);
 			break;
 		}
 	case FOLDER_CMD_CONTINUE_GAME:

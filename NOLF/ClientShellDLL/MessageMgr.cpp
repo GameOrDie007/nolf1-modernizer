@@ -31,7 +31,7 @@ VarTrack		g_vtMaxNumMessages;
 
 // THE MESSAGE LIST IN A HEADSET. Authored at the screen's top-left corner, and
 // the 2D layer spans the eye's width, so pickups and objective updates sat
-// about 40 degrees out - past where the eye reads.
+// about 40 degrees out - past where the eye reads (headset, 24 September).
 // In VR the list starts at VRMsgX, VRMsgY (fractions of the screen; defaults
 // put it about 28 degrees left of and 20 above the forward ray, clear of the time-and-place caption) and wraps at
 // VRMsgWidth of the screen. VRMsgX 0 restores the corner.
@@ -692,13 +692,13 @@ void CInputLine::Set( char *pzText )
 
 void CInputLine::Send( void )
 {
-	// WHAT WAS ACTUALLY IN THE BOX when the player pressed Enter.
+	// WHAT WAS ACTUALLY IN THE BOX when he pressed Enter.
 	//
 	// With a headset on the chat line is fed by VRTypeWhenUnfocused rather than
 	// by WM_CHAR, because nothing the host knows about holds keyboard focus.
 	// That path can prove it CALLED OnChar for each key; only this line can
 	// prove the characters landed in the buffer, in order, and that the cheat
-	// check then saw them. Without it, a cheat typed with no effect has
+	// check then saw them. Without it, "typed it and nothing happened" has
 	// three indistinguishable causes.
 	{
 		static int s_nSaidSend = 0;

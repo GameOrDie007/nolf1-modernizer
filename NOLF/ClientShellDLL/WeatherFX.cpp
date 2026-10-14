@@ -416,7 +416,7 @@ void CWeatherFX::DoSplash(LSLineStruct* pLine)
     LTVector vPos = m_vRainPos + ((line.m_Points[0].m_Pos + line.m_Points[1].m_Pos) / 2.0f);
 	vPos.y = m_fFloorY;
 	// WHERE THE SPLASHES GO, for the splashes seen hanging in the air over the
-	// M05S01 docks. The first 60, with the volume's floor.
+	// M05S01 docks (headset, 21 September). The first 60, with the volume's floor.
 	{
 		static int s_nSplashSaid = 0;
 		if (s_nSplashSaid < 60)

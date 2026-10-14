@@ -436,6 +436,7 @@ void CFolderMgr::AddFolder(eFolderID folderID)
 	case FOLDER_ID_VR_SCREEN:
 	case FOLDER_ID_VR_CONTROLS:
 	case FOLDER_ID_VR_PHYSICAL:
+	case FOLDER_ID_VR_STYLE:
 		pFolder = debug_new(CFolderVR);
 		break;
 
