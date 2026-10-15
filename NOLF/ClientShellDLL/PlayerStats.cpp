@@ -3943,10 +3943,23 @@ void CPlayerStats::DrawSurfaceCrosshair(HSURFACE hSurf, HSURFACE hScreen,
 	srect.right = dwWidth;
 	srect.bottom = dwHeight;
 
- 	rect.top = nCenterY - (dwHeight/2);
-	rect.left = nCenterX - (dwWidth/2);
-	rect.bottom = nCenterY + (dwHeight/2);
-	rect.right = nCenterX + (dwWidth/2);
+	// BIGGER IN THE HEADSET. The use and gadget icons are drawn at their
+	// authored pixel size, and on the VR screen that came out a thin speck
+	// players said was hard to see. VRActivateIconScale times, VR only.
+	uint32 dwDrawW = dwWidth, dwDrawH = dwHeight;
+	if (VRShared::IsLive())
+	{
+		float fK = GetConsoleFloat("VRActivateIconScale", 3.0f);
+		if (fK < 1.0f) fK = 1.0f;
+		if (fK > 8.0f) fK = 8.0f;
+		dwDrawW = (uint32)(dwWidth * fK);
+		dwDrawH = (uint32)(dwHeight * fK);
+	}
+
+ 	rect.top = nCenterY - (dwDrawH/2);
+	rect.left = nCenterX - (dwDrawW/2);
+	rect.bottom = nCenterY + (dwDrawH/2);
+	rect.right = nCenterX + (dwDrawW/2);
 
 	g_pLTClient->ScaleSurfaceToSurfaceTransparent(hScreen, hSurf, &rect,
 		&srect, kTransBlack);

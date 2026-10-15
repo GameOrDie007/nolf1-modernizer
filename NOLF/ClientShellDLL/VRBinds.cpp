@@ -34,7 +34,9 @@ namespace
 	const int kQuest[ACT_COUNT] = {
 		PAD_X, PAD_Y, PAD_A, PAD_B,
 		PAD_LTRIGGER, PAD_RSTICK, PAD_NONE, PAD_NONE,
-		PAD_NONE, PAD_NONE, PAD_NONE,
+		// Next ammo type is also the gadgets' second mode (the lock pick's
+		// blade), which a level needs: it was on no button at all on Quest.
+		PAD_NONE, PAD_NONE, PAD_RUP,
 		PAD_LSTICK,
 	};
 	const int kFrame[ACT_COUNT] = {
@@ -99,8 +101,28 @@ int Get(int nAct, bool bFrame)
 	if (nAct < 0 || nAct >= ACT_COUNT) return PAD_NONE;
 	char sz[48];
 	VarName(sz, sizeof(sz), nAct, bFrame);
+	const bool bSaved = g_pLTClient && g_pLTClient->GetConsoleVar(sz) != LTNULL;
 	int n = (int)(GetConsoleFloat(sz, (LTFLOAT)Default(nAct, bFrame)) + 0.5f);
 	if (n < 0 || n >= PadCount(bFrame)) n = Default(nAct, bFrame);
+	// AN ACTION ON NO BUTTON TAKES ITS DEFAULT. The Controls page saves every
+	// row, so a player who ever opened it has the next ammo type saved as
+	// (none) from before it had a default - and the gadgets' second mode, which
+	// a level needs, stayed out of reach.
+	bool bFromDefault = !bSaved;
+	if (n == PAD_NONE && Default(nAct, bFrame) != PAD_NONE) { n = Default(nAct, bFrame); bFromDefault = true; }
+	// ...BUT A DEFAULT NEVER TAKES A BUTTON ANOTHER ACTION HAS: a jump moved to
+	// the right stick up keeps it, and a button does one job.
+	if (bFromDefault && n != PAD_NONE)
+	{
+		for (int a = 0; a < ACT_COUNT; ++a)
+		{
+			if (a == nAct) continue;
+			char sz2[48];
+			VarName(sz2, sizeof(sz2), a, bFrame);
+			int m = (int)(GetConsoleFloat(sz2, (LTFLOAT)Default(a, bFrame)) + 0.5f);
+			if (m == n) return PAD_NONE;
+		}
+	}
 	return n;
 }
 
