@@ -46,6 +46,13 @@ LTBOOL ShowsTracks(SurfaceType eSurfType);
 LTBOOL GetImpactSprite(SurfaceType eSurfType, LTFLOAT & fScale, int nAmmoId,
 					  char* pBuf, int nBufLen);
 
+// PAINTBALL (VR Options > Hands and Weapons): 0 off, 1 Modern, 2 Classic.
+// Each side answers for itself: the client from its console, the server from
+// what the client last told it (CP_VRPAINTBALL).
+int VRPaintballMode();
+// A mark GetImpactSprite chose from the paint set (SFX\Paint\).
+LTBOOL VRIsPaintMark(const char* pszFile);
+
 // ----------------------------------------------------------------------- //
 //
 //	ROUTINE:	UserFlagToSurface()

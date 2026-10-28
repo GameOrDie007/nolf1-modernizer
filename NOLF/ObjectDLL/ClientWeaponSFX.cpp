@@ -13,6 +13,16 @@
 #include "stdafx.h"
 #include "WeaponMgr.h"
 #include "ClientWeaponSFX.h"
+#include "SurfaceFunctions.h"
+
+// PAINTBALL, the server's answer (SurfaceFunctions.h): what the client last
+// said in CP_VRPAINTBALL (PlayerObj.cpp). The server cannot read the client's
+// options itself.
+int g_nVRPaintballServer = 0;
+int VRPaintballMode()
+{
+	return (g_nVRPaintballServer >= 0 && g_nVRPaintballServer <= 2) ? g_nVRPaintballServer : 0;
+}
 #include "SFXMsgIds.h"
 #include "SurfaceFunctions.h"
 #include "WeaponFXTypes.h"
@@ -239,6 +249,15 @@ static void CreateServerMark(CLIENTWEAPONFX & theStruct)
     HCLASS hClass = g_pLTServer->GetClass("CServerMark");
     CServerMark* pMark = (CServerMark*) g_pLTServer->CreateObject(hClass, &createStruct);
 	if (!pMark) return;
+
+	// Paint is drawn over the surface with its own alpha, not darkening it.
+	if (VRIsPaintMark(createStruct.m_Filename))
+	{
+		g_pLTServer->SetObjectColor(pMark->m_hObject, 0.9f, 0.9f, 0.9f, 1.0f);
+		uint32 dwF2 = 0;
+		g_pLTServer->Common()->GetObjectFlags(pMark->m_hObject, OFT_Flags2, dwF2);
+		g_pLTServer->Common()->SetObjectFlags(pMark->m_hObject, OFT_Flags2, dwF2 & ~(FLAG2_MULTIPLY | FLAG2_ADDITIVE));
+	}
 
 	// Add the mark to the object...
 

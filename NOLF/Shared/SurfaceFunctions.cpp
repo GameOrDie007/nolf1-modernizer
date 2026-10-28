@@ -96,7 +96,41 @@ LTBOOL GetImpactSprite(SurfaceType eSurfType, LTFLOAT & fScale, int nAmmoId,
 		}
 	}
 
+	// PAINTBALL. Every weapon's mark becomes a splat of paint, at the same spot
+	// and facing, kept and faded and capped by the same code as the hole it
+	// replaces. Blood is not a mark and never comes here. Modern: one of 24
+	// (four shapes in six colours), half again the size of the mark with a
+	// floor so a pistol's pin-prick still shows across a room. Classic: one of
+	// 16 four-colour blends, one fixed size, as GoldenEye drew them.
+	const int nPaint = VRPaintballMode();
+	const LTFLOAT fMarkScale = pAmmo->pImpactFX->fMarkScale;
+	if (nPaint > 0 && fMarkScale > 0.0001f)
+	{
+		// The size of what it replaces, in world units: the game's bullet holes
+		// are 32 texels across, its scorches 64, drawn at mark scale x adjust.
+		const LTFLOAT fTexels = (strstr(pBuf, "urn") || strstr(pBuf, "URN")) ? 64.0f : 32.0f;
+		const LTFLOAT fWas = fTexels * fMarkScale * fScale;
+		LTFLOAT fWant;
+		if (nPaint == 2)
+		{
+			fWant = 30.0f;		// about half a metre, every splat the same
+			sprintf(pBuf, "SFX\\Paint\\Classic%d.spr", GetRandom(0, 15));
+		}
+		else
+		{
+			fWant = fWas * 1.5f;
+			if (fWant < 18.0f) fWant = 18.0f;		// about 30 cm
+			sprintf(pBuf, "SFX\\Paint\\Modern%d.spr", GetRandom(0, 23));
+		}
+		fScale = fWant / (128.0f * fMarkScale);	// the paint is 128 texels across
+	}
+
     return LTTRUE;
+}
+
+LTBOOL VRIsPaintMark(const char* pszFile)
+{
+	return (pszFile && strstr(pszFile, "\\Paint\\")) ? LTTRUE : LTFALSE;
 }
 
 // ----------------------------------------------------------------------- //

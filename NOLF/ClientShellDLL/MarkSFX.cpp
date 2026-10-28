@@ -14,6 +14,7 @@
 #include "ltlink.h"
 #include "GameClientShell.h"
 #include "SurfaceFunctions.h"
+#include "ClientUtilities.h"
 #include "VarTrack.h"
 #include "VRLog.h"
 
@@ -41,6 +42,13 @@ VarTrack	g_cvarMarkSolidTime;
 //	PURPOSE:	Create the mark
 //
 // ----------------------------------------------------------------------- //
+
+// PAINTBALL, the client's answer (SurfaceFunctions.h): VR Options writes it.
+int VRPaintballMode()
+{
+	const int n = GetConsoleInt("VRPaintball", 0);
+	return (n >= 0 && n <= 2) ? n : 0;
+}
 
 LTBOOL CMarkSFX::Init(SFXCREATESTRUCT* psfxCreateStruct)
 {
@@ -173,6 +181,7 @@ LTBOOL CMarkSFX::CreateObject(ILTClient *pClientDE)
 
 	createStruct.m_ObjectType = OT_SPRITE;
 	createStruct.m_Flags = FLAG_VISIBLE | FLAG_ROTATEABLESPRITE;
+	const LTBOOL bPaint = VRIsPaintMark(createStruct.m_Filename);
 
 	// Should probably force this in low detail modes...
 
@@ -277,6 +286,16 @@ LTBOOL CMarkSFX::CreateObject(ILTClient *pClientDE)
     LTFLOAT r, g, b, a;
 	r = g = b = 0.5f;
 	a = 1.0f;
+	// PAINT IS OPAQUE, not a stain. A bullet hole darkens the wall it sits on
+	// (multiply art at half colour); paint is drawn over the wall with its own
+	// alpha, and a little under full bright so it does not glow in the dark.
+	if (bPaint)
+	{
+		r = g = b = 0.9f;
+		uint32 dwF2 = 0;
+		g_pLTClient->Common()->GetObjectFlags(m_hObject, OFT_Flags2, dwF2);
+		g_pLTClient->Common()->SetObjectFlags(m_hObject, OFT_Flags2, dwF2 & ~(FLAG2_MULTIPLY | FLAG2_ADDITIVE));
+	}
 	m_pClientDE->SetObjectColor(m_hObject, r, g, b, a);
 
 	m_fStartTime = m_pClientDE->GetTime();

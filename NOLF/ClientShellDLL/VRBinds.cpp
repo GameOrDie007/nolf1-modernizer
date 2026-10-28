@@ -32,8 +32,10 @@ namespace
 	// THE DEFAULTS ARE THE LAYOUTS THAT SHIPPED. Quest: v1.1's, so nothing
 	// moves for anyone who never opens the page. Frame: the v1.2 layout.
 	const int kQuest[ACT_COUNT] = {
-		PAD_X, PAD_Y, PAD_A, PAD_B,
-		PAD_LTRIGGER, PAD_RSTICK, PAD_NONE, PAD_NONE,
+		// Use on the off-hand trigger, flashlight on X: the trigger is the natural
+		// 'activate', and a player who never opened the page had them the other way.
+		PAD_LTRIGGER, PAD_Y, PAD_A, PAD_B,
+		PAD_X, PAD_RSTICK, PAD_NONE, PAD_NONE,
 		// Next ammo type is also the gadgets' second mode (the lock pick's
 		// blade), which a level needs: it was on no button at all on Quest.
 		PAD_NONE, PAD_NONE, PAD_RUP,

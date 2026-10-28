@@ -191,6 +191,12 @@
 
 #define CP_VRDUCK				8
 
+// VR: Paintball (VR Options): 0 off, 1 Modern, 2 Classic. The marks the server
+// makes (on doors and props) take paint too, and the server cannot read the
+// client's options.
+
+#define CP_VRPAINTBALL			9
+
 // Client update flags
 
 #define	CLIENTUPDATE_PLAYERROT		(1<<0)

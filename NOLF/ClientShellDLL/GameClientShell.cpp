@@ -14,6 +14,7 @@
 #include <map>			// the world-model attachment gate
 #include "GameClientShell.h"
 #include "VRLog.h"
+#include "VRInputGuard.h"
 #include "VRShared.h"
 #include "VRHands.h"
 #include "VRPrims.h"
@@ -1168,6 +1169,14 @@ CGameClientShell::CGameClientShell()
 	g_SDLLogFile.close();
 
 	SDL_Log("-- Hello World, We're all set here. Enjoy the show!");
+
+	// VR: the log starts HERE, not at OnEngineInitialized: the engine starts
+	// DirectInput between the two, and a crash there left no log at all.
+	// Then the DirectInput start-up fix, in case Windows did not load the
+	// game's own DINPUT.dll (VRInputGuard.cpp).
+	VRLog::Init();
+	VRLog::Msg("client shell constructed");
+	VRInputGuard_Install();
 
 	// Just some default
 	m_lNextUpdate = 1L;
@@ -9685,6 +9694,24 @@ void CGameClientShell::VRUpdateControllerInput()
 	VRDebugSelectWeapon();
 	g_bVRMissionHeld = false;
 
+	// PAINTBALL TO THE SERVER: it makes the marks on doors and props, and
+	// cannot read the client's options. Said when it changes, and again on
+	// every world entry (a load starts the server's side afresh).
+	if (IsPlayerInWorld())
+	{
+		static int s_nPaintSent = -1, s_nPaintEntry = -1;
+		const int nPaint = VRPaintballMode();
+		if (nPaint != s_nPaintSent || g_nVRWorldEntries != s_nPaintEntry)
+		{
+			s_nPaintSent = nPaint; s_nPaintEntry = g_nVRWorldEntries;
+			HMESSAGEWRITE hPaint = g_pLTClient->StartMessage(MID_PLAYER_CLIENTMSG);
+			g_pLTClient->WriteToMessageByte(hPaint, CP_VRPAINTBALL);
+			g_pLTClient->WriteToMessageByte(hPaint, (uint8)nPaint);
+			g_pLTClient->EndMessage(hPaint);
+			VRLog::Msg("VRPaintball: %s", nPaint == 2 ? "Classic" : nPaint == 1 ? "Modern" : "off");
+		}
+	}
+
 	// OnCommandOn and OnCommandOff are TRANSITIONS, not a state the engine
 	// samples every frame. Sending On repeatedly makes the game see a key that
 	// is pressed and never released, so every hold is edge-triggered here.
@@ -9835,6 +9862,10 @@ void CGameClientShell::VRUpdateControllerInput()
 	};
 	auto BindHeld    = [&](int nAct) -> bool { return VRBinds::Held(nAct)    && !BindBlocked(nAct); };
 	auto BindPressed = [&](int nAct) -> bool { return VRBinds::Pressed(nAct) && !BindBlocked(nAct); };
+	// USE ON THE LEFT TRIGGER AND THE TRIGGER IS THE BRAKE: braking would
+	// get the rider off. So on a vehicle the flashlight's button is the
+	// use button instead, and gets the rider on and off.
+	const bool bUseOnBrake = bRiding && VRBinds::PadOf(VRBinds::ACT_USE) == VRBinds::PAD_LTRIGGER;
 
 	if (m_InterfaceMgr.GetGameState() == GS_PLAYING)
 	{
@@ -9955,6 +9986,7 @@ void CGameClientShell::VRUpdateControllerInput()
 
 		// Edge-triggered: handled in OnCommandOn's switch, not polled.
 		if (BindPressed(VRBinds::ACT_USE))    OnCommandOn(COMMAND_ID_ACTIVATE);	// X by default
+		else if (bUseOnBrake && VRBinds::Pressed(VRBinds::ACT_FLASHLIGHT)) OnCommandOn(COMMAND_ID_ACTIVATE);	// riding: dismount
 		if (BindPressed(VRBinds::ACT_RELOAD)) OnCommandOn(COMMAND_ID_RELOAD);	// Y by default
 
 		// THE REST OF THE MAPPABLE ACTIONS (Options > VR > Controls). On and
@@ -10066,7 +10098,7 @@ void CGameClientShell::VRUpdateControllerInput()
 				VRLog::Msg("VRScope: right grip - zoom level now %d of %d", m_nZoomView, pModZ->nZoomLevel);
 			}
 		}
-		if (BindPressed(VRBinds::ACT_FLASHLIGHT)) OnCommandOn(COMMAND_ID_FLASHLIGHT);	// L trigger by default (the brake while riding)
+		if (BindPressed(VRBinds::ACT_FLASHLIGHT) && !bUseOnBrake) OnCommandOn(COMMAND_ID_FLASHLIGHT);	// L trigger by default (the brake while riding)
 
 		// THE MENU, and there was no way to reach it from a headset at all.
 		//
@@ -11917,7 +11949,13 @@ void CGameClientShell::PostUpdate()
 		if (GetConsoleInt("VRMatchRefresh", 0) > 0 && VRShared::IsLive())
 		{
 			const float fHz = VRShared::State().fDisplayHz;
-			if (fHz > fVRFps && fHz < 400.0f) fVRFps = fHz;
+			// The engine's game step never goes below ~9 ms: above ~110 fps the
+			// game clock (dialogue timers, AI, doors) runs ahead of real time
+			// while the audio does not (measured: 100 Hz exact, 120 Hz 4% fast,
+			// 144 Hz 20% fast). Take the headset rate divided evenly until it is
+			// under 110, so each game frame is shown a whole number of times.
+			if (fHz > fVRFps && fHz < 400.0f)
+				fVRFps = fHz / ceilf(fHz / 110.0f);
 		}
 		if (fVRFps > 1.0f && m_lTimerFrequency.QuadPart > 0)
 		{

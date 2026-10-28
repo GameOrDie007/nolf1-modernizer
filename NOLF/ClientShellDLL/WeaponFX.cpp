@@ -2179,7 +2179,10 @@ LTVector CWeaponFX::VRMuzzleOrFirePos() const
 			// Caught by re-reading my own change rather than by him finding it.
 			const float fMzScale = (pWMm->VRWeaponScale() > 0.01f)
 								 ? (1.0f / pWMm->VRWeaponScale()) : 1.0f;
-			const LTVector vOff = pWMm->GetMuzzleOffset() * fMzScale;
+			LTVector vOff = pWMm->GetMuzzleOffset() * fMzScale;
+			// The Leftorium draws the gun mirrored, so the authored muzzle's
+			// right component flips with it (the flash does the same).
+			if (VRShared::SwapHands()) vOff.x = -vOff.x;
 			if (vOff.MagSqr() > 0.25f && vOff.MagSqr() < 40000.0f)
 			{
 				// THE GUN'S FRAME FIRST, because the authored MuzzlePos has

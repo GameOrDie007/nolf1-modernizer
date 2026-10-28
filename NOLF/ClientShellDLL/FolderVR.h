@@ -98,10 +98,12 @@ protected:
 	int		m_nGunScale;		// tenths
 	int		m_nHandTravel;		// units per metre of real hand movement
 	LTBOOL	m_bRumble;			// VRHaptics: the controllers buzz on firing and on being hit
+	LTBOOL	m_bHudHide;			// VRHudHide: no health/armor/ammo readout (they are on her hand)
 	LTBOOL	m_bMatchRefresh;	// VRMatchRefresh: run at the headset's refresh rate, next launch
 	int		m_nRumbleStrength;	// VRHapticsStrength: percent of the game's own pulses
 	int		m_nGunPos[3];		// VRGunPosForward/Up/Right + 10: the player's nudge, cm
 	LTBOOL	m_bCateHands;		// VRCateHands: Cate's own articulated hands (VRHands.cpp)
+	int		m_nPaintball;		// VRPaintball: 0 off, 1 Modern, 2 Classic (SurfaceFunctions.cpp)
 	int		m_nHandsOutfit;		// VRHandsOutfit: 0 painted, 1 Action .. 5 Winter (VRHands.cpp)
 
 	// AIM

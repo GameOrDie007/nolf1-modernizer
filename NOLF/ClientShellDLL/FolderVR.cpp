@@ -54,10 +54,12 @@ CFolderVR::CFolderVR()
 	m_bGunAtHand   = LTTRUE;
 	m_bRumble      = LTTRUE;
 	m_nRumbleStrength = 100;
+	m_bHudHide = LTFALSE;
 	m_bMatchRefresh = LTFALSE;
 	m_nGunPos[0] = m_nGunPos[1] = m_nGunPos[2] = 10;
 	m_bCateHands   = LTFALSE;
 	m_nHandsOutfit = 6;
+	m_nPaintball   = 0;
 	m_nGunScale    = 4;
 	m_nHandTravel  = 35;		// tenths: 3.5 units per metre
 	m_bAimDot      = LTTRUE;
@@ -245,8 +247,8 @@ LTBOOL CFolderVR::Build()
 			"Leftorium (left-handed)", "Swap sticks", "Gun follows hand", "Gun size",
 			"Hand movement", "Controller rumble", "Rumble strength %", "Gun forward / back", "Gun up / down", "Gun right / left", "Aim dot", "VR captions", "Aim dot size",
 			"Show body (restart)", "See yourself in mirrors (restart)", "Crouch for real",
-			"Resolution (restart)", "Menu size % (restart)", "Menu distance cm (restart)", "Steady observer view (restart)", "Match headset refresh rate (restart)", "Large menu text",
-			"Use / activate", "Previous weapon", "Next ammo type",
+			"Resolution (restart)", "Menu size % (restart)", "Menu distance cm (restart)", "Steady observer view (restart)", "Match headset refresh rate (restart)", "Hide status readout", "Large menu text",
+			"Use / activate", "Previous weapon", "Next ammo type", "Paintball",
 			"Walk direction", "Analog walking",
 			"Physical play", "Holsters on the body", "Holster height", "Manual reload",
 			"Swing to hit", "Wrist display", "Glasses to your eyes", "Two hands on long guns", "Rack the slide", "Ammo on the gun", "Room-scale", "Wall fade",
@@ -384,6 +386,22 @@ LTBOOL CFolderVR::Build()
 				}
 			}
 		}
+		// PAINTBALL: every mark a shot leaves becomes a splat of paint. Modern is
+		// ours; Classic is the four-colour splat GoldenEye made famous. It
+		// changes the next mark; the ones already there stay.
+		{
+			CCycleCtrl* pCycle = AddCycleItem("Paintball", 0, kGap, 0, &m_nPaintball);
+			if (pCycle)
+			{
+				static const char* const kPaint[] = { "Off", "Modern", "Classic" };
+				for (int d = 0; d < 3; ++d)
+				{
+					HSTRING h = g_pLTClient->CreateString((char*)kPaint[d]);
+					pCycle->AddString(h);
+					g_pLTClient->FreeString(h);
+				}
+			}
+		}
 		break;
 
 	case FOLDER_ID_VR_SCREEN:
@@ -424,6 +442,7 @@ LTBOOL CFolderVR::Build()
 		AddOnOff("Steady observer view (restart)", &m_bSpectator);
 		// The game at the headset's own rate (120, 144) instead of 90. Off:
 		// the headset is asked down to 90 Hz.
+		AddOnOff("Hide status readout", &m_bHudHide);
 		AddOnOff("Match headset refresh rate (restart)", &m_bMatchRefresh);
 		// NO ANTI-ALIASING CONTROL HERE ON PURPOSE. The renderer's multisampling
 		// is built and free but draws sky-coloured shards through alpha-tested
@@ -597,6 +616,7 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_bAnalogWalk  = (CVarF("VRAnalogWalk", 0.0f) > 0.0f);
 		m_bGunAtHand   = (CVarF("VRGunAtHand", 1.0f) > 0.0f);
 		m_bRumble      = (CVarF("VRHaptics", 1.0f) > 0.0f);
+		m_bHudHide      = (CVarF("VRHudHide", 0.0f) > 0.0f);
 		m_bMatchRefresh = (CVarF("VRMatchRefresh", 0.0f) > 0.0f);
 		m_nRumbleStrength = (int)(CVarF("VRHapticsStrength", 100.0f) + 0.5f);
 		if (m_nRumbleStrength < 25)  m_nRumbleStrength = 25;
@@ -614,6 +634,8 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		m_bCateHands   = (CVarF("VRCateHands", 1.0f) > 0.0f);
 		m_nHandsOutfit = (int)(CVarF("VRHandsOutfit", 6.0f) + 0.5f);
 		if (m_nHandsOutfit < 0 || m_nHandsOutfit > 6) m_nHandsOutfit = 6;
+		m_nPaintball = (int)(CVarF("VRPaintball", 0.0f) + 0.5f);
+		if (m_nPaintball < 0 || m_nPaintball > 2) m_nPaintball = 0;
 		m_nGunScale    = (int)(10.0f * CVarF("VRViewModelSize", 1.0f));
 		m_nHandTravel  = (int)(10.0f * CVarF("VRHandPosScale", 3.46f) + 0.5f);
 		m_bAimDot      = (CVarF("VRAimMarker", 1.0f) > 0.0f);
@@ -694,12 +716,14 @@ void CFolderVR::OnFocus(LTBOOL bFocus)
 		WriteConsoleInt  ("VRGunAtHand",     (int)m_bGunAtHand);
 		WriteConsoleInt  ("VRHaptics",       (int)m_bRumble);
 		WriteConsoleInt  ("VRHapticsStrength", m_nRumbleStrength);
+		WriteConsoleInt  ("VRHudHide",       (int)m_bHudHide);
 		WriteConsoleInt  ("VRMatchRefresh",  (int)m_bMatchRefresh);
 		WriteConsoleFloat("VRGunPosForward", (LTFLOAT)(m_nGunPos[0] - 10));
 		WriteConsoleFloat("VRGunPosUp",      (LTFLOAT)(m_nGunPos[1] - 10));
 		WriteConsoleFloat("VRGunPosRight",   (LTFLOAT)(m_nGunPos[2] - 10));
 		WriteConsoleInt  ("VRCateHands",     (int)m_bCateHands);
 		WriteConsoleInt  ("VRHandsOutfit",   m_nHandsOutfit);
+		WriteConsoleInt  ("VRPaintball",     m_nPaintball);
 		WriteConsoleFloat("VRViewModelSize", (LTFLOAT)m_nGunScale / 10.0f);
 		WriteConsoleFloat("VRHandPosScale",  (LTFLOAT)m_nHandTravel / 10.0f);
 		WriteConsoleInt  ("VRAimMarker",     (int)m_bAimDot);

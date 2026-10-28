@@ -4658,6 +4658,13 @@ void CPlayerObj::HandleClientMsg(HMESSAGEREAD hRead)
 		}
 		break;
 
+		case CP_VRPAINTBALL :
+		{
+			extern int g_nVRPaintballServer;
+			g_nVRPaintballServer = (int)g_pLTServer->ReadFromMessageByte(hRead);
+		}
+		break;
+
 		case CP_DAMAGE_VEHICLE_IMPACT :
 		case CP_DAMAGE :
 		{

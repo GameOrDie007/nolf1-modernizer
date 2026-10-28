@@ -712,6 +712,9 @@ void CPlayerStats::Draw(LTBOOL bShowStats)
     g_pLTClient->GetSurfaceDims(hScreen, &nWidth, &nHeight);
 
 
+	// Hide status readout (VR Options): health, armor and ammo are on her hand.
+	if (GetConsoleInt("VRHudHide", 0) > 0) bShowStats = LTFALSE;
+
 	DrawPlayerStats(hScreen, 0, 0, nWidth, nHeight, bShowStats);
 
 	if (m_bObjVisible)

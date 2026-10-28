@@ -516,6 +516,7 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClCompile Include="TracerFX.cpp" />
     <ClCompile Include="VehicleMgr.cpp" />
     <ClCompile Include="VRLog.cpp" />
+    <ClCompile Include="VRInputGuard.cpp" />
     <ClCompile Include="VRShared.cpp" />
     <ClCompile Include="VRBinds.cpp" />
     <ClCompile Include="VRBook.cpp" />
@@ -760,6 +761,7 @@ call "D:\GameDev\no-one-lives-forever-master\NOLF\_after_build_debug.bat"</Comma
     <ClInclude Include="VarTrack.h" />
     <ClInclude Include="VehicleMgr.h" />
     <ClInclude Include="VRLog.h" />
+    <ClInclude Include="VRInputGuard.h" />
     <ClInclude Include="VRShared.h" />
     <ClInclude Include="VRBinds.h" />
     <ClInclude Include="VRBook.h" />
